@@ -32,7 +32,12 @@ pub const DRIFT_PREFIX: &str = "MCP behavioral drift";
 const MIN_PREFIX_DEPTH: usize = 3;
 
 /// Temporary directories whose file names are random by nature.
-const TEMP_ROOTS: &[&str] = &["/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/"];
+const TEMP_ROOTS: &[&str] = &[
+    "/tmp/",
+    "/private/tmp/",
+    "/var/folders/",
+    "/private/var/folders/",
+];
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerPolicy {
@@ -106,7 +111,12 @@ impl<'a> Observation<'a> {
                     .collect()
             })
             .unwrap_or_default();
-        Some(Self { server, exec_target, paths, external_remotes })
+        Some(Self {
+            server,
+            exec_target,
+            paths,
+            external_remotes,
+        })
     }
 }
 
@@ -120,13 +130,19 @@ fn prefix_for(path: &str) -> Option<String> {
         Some(i) => &path[..i],
         None => return Some(path.to_owned()),
     };
-    let parent_dir = if parent == "/" { "/".to_owned() } else { format!("{parent}/") };
-    let depth = parent.split('/').filter(|c| !c.is_empty()).count();
-    Some(if depth >= MIN_PREFIX_DEPTH || TEMP_ROOTS.iter().any(|t| parent_dir.starts_with(t)) {
-        parent_dir
+    let parent_dir = if parent == "/" {
+        "/".to_owned()
     } else {
-        path.to_owned()
-    })
+        format!("{parent}/")
+    };
+    let depth = parent.split('/').filter(|c| !c.is_empty()).count();
+    Some(
+        if depth >= MIN_PREFIX_DEPTH || TEMP_ROOTS.iter().any(|t| parent_dir.starts_with(t)) {
+            parent_dir
+        } else {
+            path.to_owned()
+        },
+    )
 }
 
 /// Drops entries already covered by a broader directory prefix.
@@ -174,7 +190,11 @@ impl Lockfile {
         for record in records {
             let entry = &record.entry;
             // Servers that only ever received calls are still known (with an empty baseline).
-            if let Some(server) = entry.get("mcp").and_then(|m| m.get("server_name")).and_then(Value::as_str) {
+            if let Some(server) = entry
+                .get("mcp")
+                .and_then(|m| m.get("server_name"))
+                .and_then(Value::as_str)
+            {
                 baselines.entry(server.to_owned()).or_default();
             }
             let Some(obs) = Observation::from_entry(entry) else {
@@ -190,7 +210,11 @@ impl Lockfile {
             if let Some(binary) = obs.exec_target {
                 baseline.executables.insert(binary.to_owned());
             }
-            let learned = obs.paths.into_iter().filter(|p| !is_sensitive(p)).filter_map(prefix_for);
+            let learned = obs
+                .paths
+                .into_iter()
+                .filter(|p| !is_sensitive(p))
+                .filter_map(prefix_for);
             baseline.prefixes.extend(learned);
             baseline.network |= !obs.external_remotes.is_empty();
         }
@@ -205,7 +229,14 @@ impl Lockfile {
                 (name, policy)
             })
             .collect();
-        (Self { version: LOCKFILE_VERSION, source, servers }, stats)
+        (
+            Self {
+                version: LOCKFILE_VERSION,
+                source,
+                servers,
+            },
+            stats,
+        )
     }
 
     /// `Some("MCP behavioral drift: ...")` when the observation leaves the
@@ -230,11 +261,17 @@ impl Lockfile {
         }
         if !policy.allow_network {
             for remote in &obs.external_remotes {
-                findings.push(format!("opened external socket to {remote} (allow_network = false)"));
+                findings.push(format!(
+                    "opened external socket to {remote} (allow_network = false)"
+                ));
             }
         }
         (!findings.is_empty()).then(|| {
-            format!("{DRIFT_PREFIX}: server '{}' {}", obs.server, findings.join("; "))
+            format!(
+                "{DRIFT_PREFIX}: server '{}' {}",
+                obs.server,
+                findings.join("; ")
+            )
         })
     }
 
@@ -256,9 +293,11 @@ impl Lockfile {
     /// Writes the lockfile atomically (`0644`).
     pub fn save(&self, path: &Path) -> Result<()> {
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-            fs::create_dir_all(dir).with_context(|| format!("failed to create {}", dir.display()))?;
+            fs::create_dir_all(dir)
+                .with_context(|| format!("failed to create {}", dir.display()))?;
         }
-        let mut text = serde_json::to_string_pretty(self).context("failed to serialize lockfile")?;
+        let mut text =
+            serde_json::to_string_pretty(self).context("failed to serialize lockfile")?;
         text.push('\n');
         let tmp = path.with_extension("json.tmp");
         let result = (|| -> std::io::Result<()> {
@@ -286,7 +325,9 @@ impl Lockfile {
 
 /// `~/.sogar/mcp_lock.json` of the invoking user (also under `sudo`).
 pub fn default_path() -> Result<PathBuf> {
-    Ok(ledger::invoking_user_home()?.join(".sogar").join("mcp_lock.json"))
+    Ok(ledger::invoking_user_home()?
+        .join(".sogar")
+        .join("mcp_lock.json"))
 }
 
 /// A warning when someone other than root could rewrite the lockfile — an
@@ -338,54 +379,118 @@ mod tests {
     }
 
     fn record(seq: u64, entry: Value) -> VerifiedRecord {
-        VerifiedRecord { seq, hash: format!("h{seq}"), entry }
+        VerifiedRecord {
+            seq,
+            hash: format!("h{seq}"),
+            entry,
+        }
     }
 
     fn source() -> LockSource {
-        LockSource { ledger: "/tmp/l.jsonl".into(), records: 0, head_hash: "abc".into() }
+        LockSource {
+            ledger: "/tmp/l.jsonl".into(),
+            records: 0,
+            head_hash: "abc".into(),
+        }
     }
 
     fn baseline_records() -> Vec<VerifiedRecord> {
         vec![
-            record(1, json!({"event": "mcp_call_start", "severity": "info", "mcp": mcp("docs")})),
-            record(2, json!({"event": "exec", "severity": "info", "mcp": mcp("docs"), "path": "/usr/bin/git"})),
-            record(3, json!({"event": "open", "severity": "info", "mcp": mcp("docs"),
-                             "path": "/Users/dev/app/docs/intro.md"})),
-            record(4, json!({"event": "open", "severity": "info", "mcp_server": "docs",
-                             "path": "/Users/dev/app/docs/api/ref.md"})),
-            record(5, json!({"event": "write", "severity": "info", "mcp": mcp("docs"), "path": "/tmp/docs-cache-81723"})),
-            record(6, json!({"event": "open", "severity": "info", "mcp": mcp("docs"), "path": "/Users/dev/.gitconfig"})),
-            record(7, json!({"event": "rename", "severity": "info", "mcp": mcp("docs"),
-                             "path": "/Users/dev/app/build/a.tmp", "destination": "/Users/dev/app/build/a.json"})),
+            record(
+                1,
+                json!({"event": "mcp_call_start", "severity": "info", "mcp": mcp("docs")}),
+            ),
+            record(
+                2,
+                json!({"event": "exec", "severity": "info", "mcp": mcp("docs"), "path": "/usr/bin/git"}),
+            ),
+            record(
+                3,
+                json!({"event": "open", "severity": "info", "mcp": mcp("docs"),
+                             "path": "/Users/dev/app/docs/intro.md"}),
+            ),
+            record(
+                4,
+                json!({"event": "open", "severity": "info", "mcp_server": "docs",
+                             "path": "/Users/dev/app/docs/api/ref.md"}),
+            ),
+            record(
+                5,
+                json!({"event": "write", "severity": "info", "mcp": mcp("docs"), "path": "/tmp/docs-cache-81723"}),
+            ),
+            record(
+                6,
+                json!({"event": "open", "severity": "info", "mcp": mcp("docs"), "path": "/Users/dev/.gitconfig"}),
+            ),
+            record(
+                7,
+                json!({"event": "rename", "severity": "info", "mcp": mcp("docs"),
+                             "path": "/Users/dev/app/build/a.tmp", "destination": "/Users/dev/app/build/a.json"}),
+            ),
             // Critical and already-flagged behaviour is never learned.
-            record(8, json!({"event": "exec", "severity": "critical", "mcp": mcp("docs"), "path": "/usr/bin/curl",
-                             "network_connections": [{"protocol": "tcp", "fd": 3, "local": "10.0.0.2:1", "remote": "1.1.1.1:443"}]})),
-            record(9, json!({"event": "open", "severity": "critical", "mcp": mcp("docs"), "path": "/Users/dev/.ssh/id_rsa"})),
-            record(10, json!({"event": "exec", "severity": "info", "mcp": mcp("docs"), "path": "/bin/sh",
-                              "policy_violation": "MCP behavioral drift: ..."})),
+            record(
+                8,
+                json!({"event": "exec", "severity": "critical", "mcp": mcp("docs"), "path": "/usr/bin/curl",
+                             "network_connections": [{"protocol": "tcp", "fd": 3, "local": "10.0.0.2:1", "remote": "1.1.1.1:443"}]}),
+            ),
+            record(
+                9,
+                json!({"event": "open", "severity": "critical", "mcp": mcp("docs"), "path": "/Users/dev/.ssh/id_rsa"}),
+            ),
+            record(
+                10,
+                json!({"event": "exec", "severity": "info", "mcp": mcp("docs"), "path": "/bin/sh",
+                              "policy_violation": "MCP behavioral drift: ..."}),
+            ),
             // Another server talks to its API.
-            record(11, json!({"event": "exec", "severity": "info", "mcp": mcp("web"), "path": "/opt/homebrew/bin/node",
+            record(
+                11,
+                json!({"event": "exec", "severity": "info", "mcp": mcp("web"), "path": "/opt/homebrew/bin/node",
                               "network_connections": [{"protocol": "tcp", "fd": 3, "local": "10.0.0.2:2", "remote": "140.82.112.3:443"},
-                                                      {"protocol": "tcp", "fd": 4, "local": "127.0.0.1:3", "remote": "127.0.0.1:8080"}]})),
+                                                      {"protocol": "tcp", "fd": 4, "local": "127.0.0.1:3", "remote": "127.0.0.1:8080"}]}),
+            ),
             // A directory read of `/` (loader noise in older ledgers) must not allow everything.
-            record(14, json!({"event": "open", "severity": "info", "mcp": mcp("docs"), "path": "/"})),
+            record(
+                14,
+                json!({"event": "open", "severity": "info", "mcp": mcp("docs"), "path": "/"}),
+            ),
             // Human and non-MCP agent events are ignored.
-            record(12, json!({"event": "exec", "severity": "info", "actor": {"type": "human"}, "path": "/usr/bin/vim"})),
-            record(13, json!({"event": "mcp_call_start", "severity": "info", "mcp": mcp("idle")})),
+            record(
+                12,
+                json!({"event": "exec", "severity": "info", "actor": {"type": "human"}, "path": "/usr/bin/vim"}),
+            ),
+            record(
+                13,
+                json!({"event": "mcp_call_start", "severity": "info", "mcp": mcp("idle")}),
+            ),
         ]
     }
 
     #[test]
     fn learns_a_deterministic_baseline_excluding_critical_behaviour() {
         let (lock, stats) = Lockfile::build(&baseline_records(), source());
-        assert_eq!(stats, LearnStats { observations: 8, excluded: 3 });
-        assert_eq!(lock.servers.keys().collect::<Vec<_>>(), ["docs", "idle", "web"]);
+        assert_eq!(
+            stats,
+            LearnStats {
+                observations: 8,
+                excluded: 3
+            }
+        );
+        assert_eq!(
+            lock.servers.keys().collect::<Vec<_>>(),
+            ["docs", "idle", "web"]
+        );
 
         let docs = &lock.servers["docs"];
         assert_eq!(docs.allowed_executables, ["/usr/bin/git"]);
         assert_eq!(
             docs.allowed_path_prefixes,
-            ["/Users/dev/.gitconfig", "/Users/dev/app/build/", "/Users/dev/app/docs/", "/tmp/"]
+            [
+                "/Users/dev/.gitconfig",
+                "/Users/dev/app/build/",
+                "/Users/dev/app/docs/",
+                "/tmp/"
+            ]
         );
         assert!(!docs.allow_network);
         assert!(lock.servers["web"].allow_network);
@@ -402,31 +507,71 @@ mod tests {
     #[test]
     fn known_behaviour_passes_and_drift_is_described() {
         let (lock, _) = Lockfile::build(&baseline_records(), source());
-        let obs = |exec: Option<&'static str>, paths: Vec<&'static str>, remotes: Vec<&'static str>| Observation {
+        let obs = |exec: Option<&'static str>,
+                   paths: Vec<&'static str>,
+                   remotes: Vec<&'static str>| Observation {
             server: "docs",
             exec_target: exec,
             paths,
             external_remotes: remotes,
         };
 
-        assert_eq!(lock.evaluate(&obs(Some("/usr/bin/git"), vec![], vec![])), None);
-        assert_eq!(lock.evaluate(&obs(None, vec!["/Users/dev/app/docs/new/page.md"], vec![])), None);
-        assert_eq!(lock.evaluate(&obs(None, vec!["/Users/dev/app/docs"], vec![])), None);
-        assert_eq!(lock.evaluate(&obs(None, vec!["/tmp/other-random-name"], vec![])), None);
-        assert_eq!(lock.evaluate(&obs(None, vec!["/Users/dev/.gitconfig"], vec![])), None);
+        assert_eq!(
+            lock.evaluate(&obs(Some("/usr/bin/git"), vec![], vec![])),
+            None
+        );
+        assert_eq!(
+            lock.evaluate(&obs(None, vec!["/Users/dev/app/docs/new/page.md"], vec![])),
+            None
+        );
+        assert_eq!(
+            lock.evaluate(&obs(None, vec!["/Users/dev/app/docs"], vec![])),
+            None
+        );
+        assert_eq!(
+            lock.evaluate(&obs(None, vec!["/tmp/other-random-name"], vec![])),
+            None
+        );
+        assert_eq!(
+            lock.evaluate(&obs(None, vec!["/Users/dev/.gitconfig"], vec![])),
+            None
+        );
 
-        let shell = lock.evaluate(&obs(Some("/bin/sh"), vec![], vec![])).expect("drift");
-        assert_eq!(shell, "MCP behavioral drift: server 'docs' executed new binary /bin/sh");
+        let shell = lock
+            .evaluate(&obs(Some("/bin/sh"), vec![], vec![]))
+            .expect("drift");
+        assert_eq!(
+            shell,
+            "MCP behavioral drift: server 'docs' executed new binary /bin/sh"
+        );
 
-        let creds = lock.evaluate(&obs(None, vec!["/Users/dev/.ssh/known_hosts"], vec![])).expect("drift");
-        assert!(creds.contains("accessed /Users/dev/.ssh/known_hosts outside its allowed path prefixes"), "{creds}");
-        assert!(lock.evaluate(&obs(None, vec!["/Users/dev/.gitconfig.bak"], vec![])).is_some());
-        assert!(lock.evaluate(&obs(None, vec!["/Users/dev/app/docsx/a"], vec![])).is_some());
+        let creds = lock
+            .evaluate(&obs(None, vec!["/Users/dev/.ssh/known_hosts"], vec![]))
+            .expect("drift");
+        assert!(
+            creds
+                .contains("accessed /Users/dev/.ssh/known_hosts outside its allowed path prefixes"),
+            "{creds}"
+        );
+        assert!(lock
+            .evaluate(&obs(None, vec!["/Users/dev/.gitconfig.bak"], vec![]))
+            .is_some());
+        assert!(lock
+            .evaluate(&obs(None, vec!["/Users/dev/app/docsx/a"], vec![]))
+            .is_some());
 
-        let net = lock.evaluate(&obs(Some("/usr/bin/git"), vec![], vec!["1.1.1.1:443"])).expect("drift");
-        assert!(net.ends_with("opened external socket to 1.1.1.1:443 (allow_network = false)"), "{net}");
+        let net = lock
+            .evaluate(&obs(Some("/usr/bin/git"), vec![], vec!["1.1.1.1:443"]))
+            .expect("drift");
+        assert!(
+            net.ends_with("opened external socket to 1.1.1.1:443 (allow_network = false)"),
+            "{net}"
+        );
 
-        let unknown = Observation { server: "new-server", ..Default::default() };
+        let unknown = Observation {
+            server: "new-server",
+            ..Default::default()
+        };
         assert_eq!(
             lock.evaluate(&unknown).as_deref(),
             Some("MCP behavioral drift: server 'new-server' is not in the lockfile")
@@ -441,7 +586,10 @@ mod tests {
         assert_eq!(obs.exec_target, Some("/usr/bin/curl"));
         assert_eq!(obs.external_remotes, ["1.1.1.1:443"]);
         assert!(Observation::from_entry(&json!({"event": "open", "path": "/x"})).is_none());
-        assert!(Observation::from_entry(&json!({"event": "mcp_call_end", "mcp": mcp("docs")})).is_none());
+        assert!(
+            Observation::from_entry(&json!({"event": "mcp_call_end", "mcp": mcp("docs")}))
+                .is_none()
+        );
         assert!(!is_external("127.0.0.1:5"));
         assert!(!is_external("garbage"));
         assert!(is_external("[2606:4700::1111]:443"));
@@ -450,8 +598,14 @@ mod tests {
     #[test]
     fn prefixes_generalize_to_directories_but_not_near_the_root() {
         let p = |path: &str| prefix_for(path);
-        assert_eq!(p("/Users/dev/app/src/main.rs").as_deref(), Some("/Users/dev/app/src/"));
-        assert_eq!(p("/Users/dev/notes.md").as_deref(), Some("/Users/dev/notes.md"));
+        assert_eq!(
+            p("/Users/dev/app/src/main.rs").as_deref(),
+            Some("/Users/dev/app/src/")
+        );
+        assert_eq!(
+            p("/Users/dev/notes.md").as_deref(),
+            Some("/Users/dev/notes.md")
+        );
         assert_eq!(p("/etc/hosts").as_deref(), Some("/etc/hosts"));
         assert_eq!(p("/tmp/x").as_deref(), Some("/tmp/"));
         assert_eq!(p("/private/tmp/y").as_deref(), Some("/private/tmp/"));
@@ -459,7 +613,10 @@ mod tests {
         // Reading the root directory must not allow everything.
         assert_eq!(p("/"), None);
         assert_eq!(p(""), None);
-        let set: BTreeSet<String> = ["/a/b/c/", "/a/b/c/d/", "/a/b/c/file", "/x/y/z/"].iter().map(|s| s.to_string()).collect();
+        let set: BTreeSet<String> = ["/a/b/c/", "/a/b/c/d/", "/a/b/c/file", "/x/y/z/"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert_eq!(minimize(set), ["/a/b/c/", "/x/y/z/"]);
     }
 

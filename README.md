@@ -1,5 +1,10 @@
 # sogar
 
+[![crates.io](https://img.shields.io/crates/v/sogar.svg)](https://crates.io/crates/sogar)
+[![CI](https://github.com/RyZenoKelb/Sogar/actions/workflows/ci.yml/badge.svg)](https://github.com/RyZenoKelb/Sogar/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+![Platform: macOS 13+](https://img.shields.io/badge/platform-macOS%2013%2B-lightgrey.svg)
+
 **A kernel-to-MCP flight recorder for AI agents on macOS.**
 
 sogar records what AI coding agents (Claude Code, Claude Desktop, Cursor, Codex, Windsurf, aider, goose) and the MCP servers they launch actually do to your machine. Every process launch, file access and socket is attributed to the agent and the exact MCP tool call that caused it, and written to a tamper-evident, SHA-256 hash-chained log.
@@ -37,7 +42,7 @@ AI agent (claude, root 4211)
 ## Quickstart
 
 ```bash
-cargo install --path .
+cargo install sogar
 
 # 1. Route your MCP servers through sogar (edits ~/.claude.json, ~/.cursor/mcp.json,
 #    Claude Desktop's config, ./.mcp.json; originals saved as *.sogar.bak)
@@ -161,16 +166,19 @@ Critical events
 
 ## Requirements and limits
 
-- macOS 13+ (for `eslogger`); `watch` needs root, and the terminal that runs it needs Full Disk Access.
+- macOS 13+ (for `eslogger`) and, to build from source, Rust 1.88+. `watch` needs root, and the terminal that runs it needs Full Disk Access.
 - Socket snapshots are taken when a process starts and once more 40 ms later, not by tracing every connection. A short connection that opens and closes between snapshots can be missed.
 - An agent is recognised by its executable or script name (`--agent-match` overrides the pattern). Processes that a GUI agent such as Cursor launches for you (its integrated terminal, for example) are attributed to that agent.
 - The hash chain has no key: it proves the log is internally consistent, not who wrote it. Anchor the head hash externally for stronger guarantees.
 
-## Development
+## Contributing
 
-```bash
-cargo test
-cargo clippy --all-targets
-```
+Bug reports, detection ideas and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup and guidelines, and [CHANGELOG.md](CHANGELOG.md) for release notes. This project follows a [code of conduct](CODE_OF_CONDUCT.md).
 
-License: Apache-2.0
+## Security
+
+Please report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md). Do not open public issues for them.
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).

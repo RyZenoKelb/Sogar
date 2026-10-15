@@ -253,7 +253,12 @@ pub async fn scan_process_table() -> Result<Vec<ProcEntry>> {
             let exe = procinfo::executable_path(pid)
                 .or_else(|| args.first().cloned())
                 .unwrap_or_default();
-            ProcEntry { pid, ppid, exe, args }
+            ProcEntry {
+                pid,
+                ppid,
+                exe,
+                args,
+            }
         })
         .collect())
 }
@@ -269,7 +274,11 @@ pub fn parse_ps_output(text: &str) -> Vec<(u32, u32, String)> {
         .filter_map(|line| {
             let (pid, rest) = field(line)?;
             let (ppid, rest) = field(rest)?;
-            Some((pid.parse().ok()?, ppid.parse().ok()?, rest.trim().to_owned()))
+            Some((
+                pid.parse().ok()?,
+                ppid.parse().ok()?,
+                rest.trim().to_owned(),
+            ))
         })
         .collect()
 }
@@ -339,10 +348,21 @@ impl McpServer {
 /// What an accepted IPC message changed.
 #[derive(Debug, Clone, PartialEq)]
 pub enum IpcEffect {
-    ServerStarted { server_name: String, wrapper_pid: u32, child_pid: u32 },
+    ServerStarted {
+        server_name: String,
+        wrapper_pid: u32,
+        child_pid: u32,
+    },
     CallStarted(McpToolCall),
-    CallEnded { call: McpToolCall, is_error: bool, cancelled: bool },
-    ServerExited { server_name: String, child_pid: u32 },
+    CallEnded {
+        call: McpToolCall,
+        is_error: bool,
+        cancelled: bool,
+    },
+    ServerExited {
+        server_name: String,
+        child_pid: u32,
+    },
     Ignored,
 }
 
@@ -372,7 +392,10 @@ impl LineageTracker {
     }
 
     pub fn actor_of(&self, pid: u32) -> Actor {
-        self.procs.get(&pid).map(Actor::from).unwrap_or(Actor::Human)
+        self.procs
+            .get(&pid)
+            .map(Actor::from)
+            .unwrap_or(Actor::Human)
     }
 
     /// Seeds lineage from a process table snapshot: every outermost agent
@@ -455,7 +478,13 @@ impl LineageTracker {
                 let parent = self.resolve(ev, None);
                 match &parent {
                     Some(l) => {
-                        self.procs.insert(*child_pid, AgentLineage { ppid: ev.pid, ..l.clone() });
+                        self.procs.insert(
+                            *child_pid,
+                            AgentLineage {
+                                ppid: ev.pid,
+                                ..l.clone()
+                            },
+                        );
                     }
                     // A fresh PID from an untracked parent: drop any stale entry
                     // left by PID reuse, unless a wrapper already registered it.
@@ -466,9 +495,9 @@ impl LineageTracker {
                 }
                 parent
             }
-            EventKind::Exec { target_path, args, .. } => {
-                self.resolve(ev, Some((target_path.as_str(), args.as_slice())))
-            }
+            EventKind::Exec {
+                target_path, args, ..
+            } => self.resolve(ev, Some((target_path.as_str(), args.as_slice()))),
             _ => self.resolve(ev, None),
         };
 
@@ -501,7 +530,10 @@ impl LineageTracker {
         // 2. Parent is tracked.
         if ev.ppid != ev.pid {
             if let Some(parent) = self.procs.get(&ev.ppid) {
-                let l = AgentLineage { ppid: ev.ppid, ..parent.clone() };
+                let l = AgentLineage {
+                    ppid: ev.ppid,
+                    ..parent.clone()
+                };
                 return Some(self.insert(ev.pid, l));
             }
         }
@@ -510,7 +542,11 @@ impl LineageTracker {
             .and_then(|(path, args)| self.matcher.identify(path, args))
             .or_else(|| self.matcher.identify(&ev.executable, &[]));
         if let Some(agent_name) = agent {
-            let l = AgentLineage { agent_name, root_pid: ev.pid, ppid: ev.ppid };
+            let l = AgentLineage {
+                agent_name,
+                root_pid: ev.pid,
+                ppid: ev.ppid,
+            };
             return Some(self.insert(ev.pid, l));
         }
         // 4. True ancestry from the live process table (covers events that
@@ -521,7 +557,10 @@ impl LineageTracker {
         // 5. XNU's responsible process (e.g. the GUI app that launched it).
         if ev.responsible_pid != 0 && ev.responsible_pid != ev.pid {
             if let Some(resp) = self.procs.get(&ev.responsible_pid) {
-                let l = AgentLineage { ppid: ev.ppid, ..resp.clone() };
+                let l = AgentLineage {
+                    ppid: ev.ppid,
+                    ..resp.clone()
+                };
                 return Some(self.insert(ev.pid, l));
             }
         }
@@ -561,7 +600,13 @@ impl LineageTracker {
             cur = parent;
         };
         for (p, pp) in chain.into_iter().rev() {
-            self.procs.insert(p, AgentLineage { ppid: pp, ..anchor.clone() });
+            self.procs.insert(
+                p,
+                AgentLineage {
+                    ppid: pp,
+                    ..anchor.clone()
+                },
+            );
         }
         self.procs.get(&pid).cloned()
     }
@@ -577,7 +622,11 @@ impl LineageTracker {
             .executable_of(pid)
             .and_then(|exe| self.matcher.identify(&exe, &[]));
         if let Some(agent_name) = name {
-            let l = AgentLineage { agent_name, root_pid: pid, ppid: parent.unwrap_or(0) };
+            let l = AgentLineage {
+                agent_name,
+                root_pid: pid,
+                ppid: parent.unwrap_or(0),
+            };
             return Some(self.insert(pid, l));
         }
         self.adopt_via_ancestry(pid, parent?)
@@ -609,9 +658,18 @@ impl LineageTracker {
     /// Applies a wrapper message. `peer_pid` is the kernel-reported sender;
     /// messages that impersonate another wrapper, or whose sender cannot be
     /// verified, are rejected.
-    pub fn apply_ipc(&mut self, msg: &IpcMessage, peer_pid: Option<u32>) -> Result<IpcEffect, String> {
+    pub fn apply_ipc(
+        &mut self,
+        msg: &IpcMessage,
+        peer_pid: Option<u32>,
+    ) -> Result<IpcEffect, String> {
         match msg {
-            IpcMessage::McpServerStart { wrapper_pid, child_pid, server_name, .. } => {
+            IpcMessage::McpServerStart {
+                wrapper_pid,
+                child_pid,
+                server_name,
+                ..
+            } => {
                 self.authorize_wrapper(peer_pid, *wrapper_pid, *child_pid)?;
                 self.register_server(*wrapper_pid, *child_pid, server_name);
                 Ok(IpcEffect::ServerStarted {
@@ -660,7 +718,13 @@ impl LineageTracker {
                 });
                 Ok(IpcEffect::CallStarted(call))
             }
-            IpcMessage::McpCallEnd { child_pid, rpc_id, timestamp, is_error, cancelled } => {
+            IpcMessage::McpCallEnd {
+                child_pid,
+                rpc_id,
+                timestamp,
+                is_error,
+                cancelled,
+            } => {
                 self.authorize_owner(peer_pid, *child_pid)?;
                 let ended = self
                     .servers
@@ -675,7 +739,11 @@ impl LineageTracker {
                     None => IpcEffect::Ignored,
                 })
             }
-            IpcMessage::McpServerExit { child_pid, timestamp, .. } => {
+            IpcMessage::McpServerExit {
+                child_pid,
+                timestamp,
+                ..
+            } => {
                 self.authorize_owner(peer_pid, *child_pid)?;
                 Ok(match self.servers.get_mut(child_pid) {
                     Some(server) => {
@@ -725,7 +793,10 @@ impl LineageTracker {
 
     fn register_server(&mut self, wrapper_pid: u32, child_pid: u32, server_name: &str) {
         let lineage = match self.lineage_of_live(wrapper_pid) {
-            Some(w) => AgentLineage { ppid: wrapper_pid, ..w },
+            Some(w) => AgentLineage {
+                ppid: wrapper_pid,
+                ..w
+            },
             None => AgentLineage {
                 agent_name: UNKNOWN_MCP_CLIENT.to_owned(),
                 root_pid: wrapper_pid,
@@ -768,8 +839,8 @@ impl LineageTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eslogger::tests::message;
     use crate::eslogger::parse_line;
+    use crate::eslogger::tests::message;
     use serde_json::json;
 
     #[derive(Default)]
@@ -796,7 +867,10 @@ mod tests {
     }
 
     fn tracker_with(probe: FakeProbe) -> LineageTracker {
-        LineageTracker::with_probe(AgentMatcher::new(None).expect("default regex"), Box::new(probe))
+        LineageTracker::with_probe(
+            AgentMatcher::new(None).expect("default regex"),
+            Box::new(probe),
+        )
     }
 
     fn event(pid: u32, ppid: u32, exe: &str, body: Value) -> KernelEvent {
@@ -806,12 +880,22 @@ mod tests {
     }
 
     fn exec(pid: u32, ppid: u32, old: &str, new: &str, args: &[&str]) -> KernelEvent {
-        event(pid, ppid, old, json!({"exec": {"target": {"audit_token": {"pid": pid},
-            "executable": {"path": new}}, "args": args}}))
+        event(
+            pid,
+            ppid,
+            old,
+            json!({"exec": {"target": {"audit_token": {"pid": pid},
+            "executable": {"path": new}}, "args": args}}),
+        )
     }
 
     fn open(pid: u32, ppid: u32, exe: &str, path: &str) -> KernelEvent {
-        event(pid, ppid, exe, json!({"open": {"file": {"path": path}, "fflag": 1}}))
+        event(
+            pid,
+            ppid,
+            exe,
+            json!({"open": {"file": {"path": path}, "fflag": 1}}),
+        )
     }
 
     fn at(mut ev: KernelEvent, secs: i64) -> KernelEvent {
@@ -824,7 +908,10 @@ mod tests {
     }
 
     fn claude() -> Actor {
-        Actor::AiAgent { agent_name: "claude".into(), root_pid: 100 }
+        Actor::AiAgent {
+            agent_name: "claude".into(),
+            root_pid: 100,
+        }
     }
 
     #[test]
@@ -834,35 +921,79 @@ mod tests {
             let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
             m.identify(exe, &args)
         };
-        assert_eq!(id("/Users/dev/.local/bin/claude", &[]), Some("claude".into()));
-        assert_eq!(id("/Applications/Cursor.app/Contents/MacOS/Cursor", &[]), Some("cursor".into()));
+        assert_eq!(
+            id("/Users/dev/.local/bin/claude", &[]),
+            Some("claude".into())
+        );
+        assert_eq!(
+            id("/Applications/Cursor.app/Contents/MacOS/Cursor", &[]),
+            Some("cursor".into())
+        );
         assert_eq!(
             id("/Applications/Cursor.app/Contents/Frameworks/Cursor Helper (Plugin).app/Contents/MacOS/Cursor Helper (Plugin)", &[]),
             Some("cursor".into())
         );
-        assert_eq!(id("/opt/homebrew/bin/codex", &["codex", "exec"]), Some("codex".into()));
-        assert_eq!(id("/opt/homebrew/bin/node", &["node", "/opt/homebrew/bin/claude"]), Some("claude".into()));
-        assert_eq!(id("/usr/bin/python3", &["python3", "-m", "aider"]), Some("aider".into()));
-        assert_eq!(id("/Applications/Windsurf.app/Contents/MacOS/Electron", &[]), Some("windsurf".into()));
-        assert_eq!(id("/bin/cat", &["cat", "/Users/dev/.claude/settings.json"]), None);
+        assert_eq!(
+            id("/opt/homebrew/bin/codex", &["codex", "exec"]),
+            Some("codex".into())
+        );
+        assert_eq!(
+            id(
+                "/opt/homebrew/bin/node",
+                &["node", "/opt/homebrew/bin/claude"]
+            ),
+            Some("claude".into())
+        );
+        assert_eq!(
+            id("/usr/bin/python3", &["python3", "-m", "aider"]),
+            Some("aider".into())
+        );
+        assert_eq!(
+            id("/Applications/Windsurf.app/Contents/MacOS/Electron", &[]),
+            Some("windsurf".into())
+        );
+        assert_eq!(
+            id("/bin/cat", &["cat", "/Users/dev/.claude/settings.json"]),
+            None
+        );
         assert_eq!(id("/bin/cat", &["cat", "claude.txt"]), None);
         assert_eq!(id("/Users/dev/claude-experiments/run.sh", &[]), None);
         assert_eq!(id("/bin/zsh", &["-zsh"]), None);
 
         let custom = AgentMatcher::new(Some(r"(?i)/(my-agent)$")).expect("regex");
-        assert_eq!(custom.identify("/usr/local/bin/my-agent", &[]), Some("my-agent".into()));
+        assert_eq!(
+            custom.identify("/usr/local/bin/my-agent", &[]),
+            Some("my-agent".into())
+        );
         assert!(AgentMatcher::new(Some("(unclosed")).is_err());
     }
 
     #[test]
     fn agent_exec_creates_root_and_children_inherit_lineage() {
         let mut t = tracker();
-        let root = t.observe(&exec(100, 50, "/bin/zsh", "/usr/local/bin/claude", &["claude"]));
+        let root = t.observe(&exec(
+            100,
+            50,
+            "/bin/zsh",
+            "/usr/local/bin/claude",
+            &["claude"],
+        ));
         assert_eq!(root.actor, claude());
 
         // fork + exec of a shell tool
-        t.observe(&event(100, 50, "/usr/local/bin/claude", json!({"fork": {"child": {"audit_token": {"pid": 101}}}})));
-        let bash = t.observe(&exec(101, 100, "/usr/local/bin/claude", "/bin/bash", &["bash", "-c", "curl x"]));
+        t.observe(&event(
+            100,
+            50,
+            "/usr/local/bin/claude",
+            json!({"fork": {"child": {"audit_token": {"pid": 101}}}}),
+        ));
+        let bash = t.observe(&exec(
+            101,
+            100,
+            "/usr/local/bin/claude",
+            "/bin/bash",
+            &["bash", "-c", "curl x"],
+        ));
         assert_eq!(bash.actor, claude());
 
         // grandchild seen only through ppid
@@ -878,15 +1009,33 @@ mod tests {
     #[test]
     fn nested_agents_keep_the_outermost_root() {
         let mut t = tracker();
-        t.observe(&exec(100, 50, "/bin/zsh", "/usr/local/bin/claude", &["claude"]));
-        let codex = t.observe(&exec(101, 100, "/bin/bash", "/opt/homebrew/bin/codex", &["codex"]));
+        t.observe(&exec(
+            100,
+            50,
+            "/bin/zsh",
+            "/usr/local/bin/claude",
+            &["claude"],
+        ));
+        let codex = t.observe(&exec(
+            101,
+            100,
+            "/bin/bash",
+            "/opt/homebrew/bin/codex",
+            &["codex"],
+        ));
         assert_eq!(codex.actor, claude());
     }
 
     #[test]
     fn exit_forgets_pid_so_reuse_is_not_misattributed() {
         let mut t = tracker();
-        t.observe(&exec(100, 50, "/bin/zsh", "/usr/local/bin/claude", &["claude"]));
+        t.observe(&exec(
+            100,
+            50,
+            "/bin/zsh",
+            "/usr/local/bin/claude",
+            &["claude"],
+        ));
         t.observe(&open(101, 100, "/bin/cat", "/Users/dev/a"));
         let gone = t.observe(&event(101, 100, "/bin/cat", json!({"exit": {"stat": 0}})));
         assert_eq!(gone.actor, claude());
@@ -898,9 +1047,20 @@ mod tests {
     #[test]
     fn fork_from_untracked_parent_clears_stale_entry() {
         let mut t = tracker();
-        t.observe(&exec(100, 50, "/bin/zsh", "/usr/local/bin/claude", &["claude"]));
+        t.observe(&exec(
+            100,
+            50,
+            "/bin/zsh",
+            "/usr/local/bin/claude",
+            &["claude"],
+        ));
         t.observe(&open(101, 100, "/bin/cat", "/Users/dev/a")); // tracked, but exit never seen
-        t.observe(&event(299, 1, "/bin/zsh", json!({"fork": {"child": {"audit_token": {"pid": 101}}}})));
+        t.observe(&event(
+            299,
+            1,
+            "/bin/zsh",
+            json!({"fork": {"child": {"audit_token": {"pid": 101}}}}),
+        ));
         let reused = t.observe(&open(101, 299, "/bin/zsh", "/Users/dev/b"));
         assert_eq!(reused.actor, Actor::Human);
     }
@@ -926,7 +1086,13 @@ mod tests {
     #[test]
     fn responsible_pid_attributes_gui_launched_helpers() {
         let mut t = tracker();
-        t.observe(&exec(100, 1, "/sbin/launchd", "/usr/local/bin/claude", &["claude"]));
+        t.observe(&exec(
+            100,
+            1,
+            "/sbin/launchd",
+            "/usr/local/bin/claude",
+            &["claude"],
+        ));
         let mut ev = open(500, 1, "/usr/bin/helper", "/Users/dev/x");
         ev.responsible_pid = 100;
         assert_eq!(t.observe(&ev).actor, claude());
@@ -952,17 +1118,31 @@ mod tests {
             .into_iter()
             .map(|(pid, ppid, cmd)| {
                 let args: Vec<String> = cmd.split_whitespace().map(str::to_owned).collect();
-                ProcEntry { pid, ppid, exe: args[0].clone(), args }
+                ProcEntry {
+                    pid,
+                    ppid,
+                    exe: args[0].clone(),
+                    args,
+                }
             })
             .collect();
 
         let mut t = tracker();
         let report = t.seed(&entries);
-        assert_eq!(report.roots, vec![(100, "claude".into()), (200, "cursor".into())]);
+        assert_eq!(
+            report.roots,
+            vec![(100, "claude".into()), (200, "cursor".into())]
+        );
         assert_eq!(report.tracked, 6);
         assert_eq!(t.actor_of(102), claude());
         assert_eq!(t.actor_of(103), claude()); // nested codex stays under claude
-        assert_eq!(t.actor_of(201), Actor::AiAgent { agent_name: "cursor".into(), root_pid: 200 });
+        assert_eq!(
+            t.actor_of(201),
+            Actor::AiAgent {
+                agent_name: "cursor".into(),
+                root_pid: 200
+            }
+        );
         assert_eq!(t.actor_of(300), Actor::Human);
         assert_eq!(t.actor_of(50), Actor::Human);
     }
@@ -977,7 +1157,10 @@ mod tests {
             arguments_summary: None,
             timestamp: ts(secs),
         };
-        assert!(matches!(t.apply_ipc(&msg, Some(110)), Ok(IpcEffect::CallStarted(_))));
+        assert!(matches!(
+            t.apply_ipc(&msg, Some(110)),
+            Ok(IpcEffect::CallStarted(_))
+        ));
     }
 
     fn end_call(t: &mut LineageTracker, id: Value, secs: i64) -> IpcEffect {
@@ -994,15 +1177,30 @@ mod tests {
     /// claude(100) -> sogar mcp-wrap(110) -> MCP server(111)
     fn tracker_with_mcp_server() -> LineageTracker {
         let mut t = tracker();
-        t.observe(&exec(100, 50, "/bin/zsh", "/usr/local/bin/claude", &["claude"]));
-        t.observe(&exec(110, 100, "/usr/local/bin/claude", "/usr/local/bin/sogar", &["sogar", "mcp-wrap"]));
+        t.observe(&exec(
+            100,
+            50,
+            "/bin/zsh",
+            "/usr/local/bin/claude",
+            &["claude"],
+        ));
+        t.observe(&exec(
+            110,
+            100,
+            "/usr/local/bin/claude",
+            "/usr/local/bin/sogar",
+            &["sogar", "mcp-wrap"],
+        ));
         let start = IpcMessage::McpServerStart {
             wrapper_pid: 110,
             child_pid: 111,
             server_name: "fs".into(),
             timestamp: ts(0),
         };
-        assert!(matches!(t.apply_ipc(&start, Some(110)), Ok(IpcEffect::ServerStarted { .. })));
+        assert!(matches!(
+            t.apply_ipc(&start, Some(110)),
+            Ok(IpcEffect::ServerStarted { .. })
+        ));
         t
     }
 
@@ -1012,21 +1210,57 @@ mod tests {
         start_call(&mut t, json!(7), "read_file", 10);
 
         // The server itself and a grandchild both inherit the call.
-        let direct = t.observe(&at(open(111, 110, "/opt/homebrew/bin/node", "/Users/dev/.ssh/id_rsa"), 11));
+        let direct = t.observe(&at(
+            open(111, 110, "/opt/homebrew/bin/node", "/Users/dev/.ssh/id_rsa"),
+            11,
+        ));
         assert_eq!(direct.actor, claude());
-        assert_eq!(direct.mcp.as_ref().map(|c| c.tool_name.as_str()), Some("read_file"));
+        assert_eq!(
+            direct.mcp.as_ref().map(|c| c.tool_name.as_str()),
+            Some("read_file")
+        );
 
-        t.observe(&at(exec(112, 111, "/opt/homebrew/bin/node", "/bin/sh", &["sh", "-c", "cat x"]), 12));
+        t.observe(&at(
+            exec(
+                112,
+                111,
+                "/opt/homebrew/bin/node",
+                "/bin/sh",
+                &["sh", "-c", "cat x"],
+            ),
+            12,
+        ));
         let grandchild = t.observe(&at(open(113, 112, "/bin/cat", "/Users/dev/x"), 12));
         let call = grandchild.mcp.expect("call attached");
-        assert_eq!((call.server_name.as_str(), call.rpc_id.clone()), ("fs", json!(7)));
+        assert_eq!(
+            (call.server_name.as_str(), call.rpc_id.clone()),
+            ("fs", json!(7))
+        );
 
         // Late kernel event still inside the window; event after the end is not.
-        assert!(matches!(end_call(&mut t, json!(7), 20), IpcEffect::CallEnded { .. }));
-        assert!(t.observe(&at(open(111, 110, "/opt/homebrew/bin/node", "/Users/dev/y"), 19)).mcp.is_some());
-        assert!(t.observe(&at(open(111, 110, "/opt/homebrew/bin/node", "/Users/dev/y"), 21)).mcp.is_none());
+        assert!(matches!(
+            end_call(&mut t, json!(7), 20),
+            IpcEffect::CallEnded { .. }
+        ));
+        assert!(t
+            .observe(&at(
+                open(111, 110, "/opt/homebrew/bin/node", "/Users/dev/y"),
+                19
+            ))
+            .mcp
+            .is_some());
+        assert!(t
+            .observe(&at(
+                open(111, 110, "/opt/homebrew/bin/node", "/Users/dev/y"),
+                21
+            ))
+            .mcp
+            .is_none());
         // Before the call started: no tool call, but still the server's own activity.
-        let before = t.observe(&at(open(111, 110, "/opt/homebrew/bin/node", "/Users/dev/y"), 5));
+        let before = t.observe(&at(
+            open(111, 110, "/opt/homebrew/bin/node", "/Users/dev/y"),
+            5,
+        ));
         assert!(before.mcp.is_none());
         assert_eq!(before.mcp_server.as_deref(), Some("fs"));
         assert_eq!(t.mcp_server_of(113).as_deref(), Some("fs"));
@@ -1038,7 +1272,10 @@ mod tests {
         let mut t = tracker_with_mcp_server();
         start_call(&mut t, json!("a"), "search", 10);
         start_call(&mut t, json!("b"), "fetch", 12);
-        let ev = t.observe(&at(open(111, 110, "/opt/homebrew/bin/node", "/Users/dev/z"), 13));
+        let ev = t.observe(&at(
+            open(111, 110, "/opt/homebrew/bin/node", "/Users/dev/z"),
+            13,
+        ));
         assert_eq!(ev.mcp.map(|c| c.tool_name), Some("fetch".into()));
         assert_eq!(end_call(&mut t, json!(99), 14), IpcEffect::Ignored);
     }
@@ -1048,7 +1285,14 @@ mod tests {
         let mut t = tracker_with_mcp_server();
         start_call(&mut t, json!(1), "read_file", 10);
         let human = t.observe(&at(open(300, 299, "/usr/bin/vim", "/Users/dev/z"), 11));
-        assert_eq!(human, Attribution { actor: Actor::Human, mcp: None, mcp_server: None });
+        assert_eq!(
+            human,
+            Attribution {
+                actor: Actor::Human,
+                mcp: None,
+                mcp_server: None
+            }
+        );
     }
 
     #[test]
@@ -1073,7 +1317,10 @@ mod tests {
         assert!(t.apply_ipc(&forged_end, None).is_err());
 
         // A wrapper cannot claim a process that is not its child.
-        let probe = FakeProbe { parents: HashMap::from([(300, 299)]), ..Default::default() };
+        let probe = FakeProbe {
+            parents: HashMap::from([(300, 299)]),
+            ..Default::default()
+        };
         let mut t = tracker_with(probe);
         let claim = IpcMessage::McpServerStart {
             wrapper_pid: 110,
@@ -1109,12 +1356,32 @@ mod tests {
 
     #[test]
     fn maintenance_prunes_dead_processes_and_expired_calls() {
-        let probe = FakeProbe { dead: HashSet::from([101]), ..Default::default() };
+        let probe = FakeProbe {
+            dead: HashSet::from([101]),
+            ..Default::default()
+        };
         let mut t = tracker_with(probe);
-        t.observe(&exec(100, 50, "/bin/zsh", "/usr/local/bin/claude", &["claude"]));
+        t.observe(&exec(
+            100,
+            50,
+            "/bin/zsh",
+            "/usr/local/bin/claude",
+            &["claude"],
+        ));
         t.observe(&open(101, 100, "/bin/cat", "/Users/dev/a"));
-        t.observe(&exec(110, 100, "/usr/local/bin/claude", "/usr/local/bin/sogar", &["sogar"]));
-        let start = IpcMessage::McpServerStart { wrapper_pid: 110, child_pid: 111, server_name: "fs".into(), timestamp: ts(0) };
+        t.observe(&exec(
+            110,
+            100,
+            "/usr/local/bin/claude",
+            "/usr/local/bin/sogar",
+            &["sogar"],
+        ));
+        let start = IpcMessage::McpServerStart {
+            wrapper_pid: 110,
+            child_pid: 111,
+            server_name: "fs".into(),
+            timestamp: ts(0),
+        };
         t.apply_ipc(&start, Some(110)).expect("ok");
         start_call(&mut t, json!(1), "x", 1);
         end_call(&mut t, json!(1), 2);
@@ -1125,8 +1392,16 @@ mod tests {
         t.maintain(ts(60));
         assert!(t.servers[&111].calls.is_empty());
 
-        let exit = IpcMessage::McpServerExit { wrapper_pid: 110, child_pid: 111, timestamp: ts(61), exit_code: Some(0) };
-        assert!(matches!(t.apply_ipc(&exit, Some(110)), Ok(IpcEffect::ServerExited { .. })));
+        let exit = IpcMessage::McpServerExit {
+            wrapper_pid: 110,
+            child_pid: 111,
+            timestamp: ts(61),
+            exit_code: Some(0),
+        };
+        assert!(matches!(
+            t.apply_ipc(&exit, Some(110)),
+            Ok(IpcEffect::ServerExited { .. })
+        ));
         t.maintain(ts(100));
         assert!(t.servers.is_empty());
     }

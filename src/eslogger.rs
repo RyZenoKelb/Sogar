@@ -105,7 +105,10 @@ impl EventKind {
             | EventKind::Create { path }
             | EventKind::Unlink { path }
             | EventKind::UipcConnect { path } => vec![path.as_str()],
-            EventKind::Rename { source, destination } => {
+            EventKind::Rename {
+                source,
+                destination,
+            } => {
                 vec![source.as_str(), destination.as_str()]
             }
             EventKind::Fork { .. } | EventKind::Exit => Vec::new(),
@@ -507,7 +510,9 @@ fn is_loader_read(path: &str) -> bool {
 
 /// `path` relative to the user's home when it is under `/Users/<name>/`.
 fn home_relative(path: &str) -> Option<&str> {
-    path.strip_prefix("/Users/")?.split_once('/').map(|(_, rel)| rel)
+    path.strip_prefix("/Users/")?
+        .split_once('/')
+        .map(|(_, rel)| rel)
 }
 
 /// `~/Library/Caches/`, `~/Library/Logs/`, and the Chromium caches and web
@@ -527,7 +532,9 @@ fn is_vendor_churn_path(path: &str) -> bool {
     };
     VENDOR_APPS.contains(&app)
         && (VENDOR_CACHE_DIRS.iter().any(|d| inner.starts_with(d))
-            || inner.split('/').any(|component| VENDOR_STATE_DIRS.contains(&component)))
+            || inner
+                .split('/')
+                .any(|component| VENDOR_STATE_DIRS.contains(&component)))
 }
 
 /// A process shipped inside an application bundle or by Apple, as opposed to
@@ -583,7 +590,9 @@ pub fn is_noise(ev: &KernelEvent) -> bool {
 /// Apple system daemons (Spotlight, securityd, ...) that legitimately touch
 /// keychains and dotfiles all day long.
 pub fn is_system_executable(path: &str) -> bool {
-    SYSTEM_EXECUTABLE_PREFIXES.iter().any(|p| path.starts_with(p))
+    SYSTEM_EXECUTABLE_PREFIXES
+        .iter()
+        .any(|p| path.starts_with(p))
 }
 
 // ---------------------------------------------------------------------------
@@ -672,7 +681,10 @@ where
                     let preview = String::from_utf8_lossy(&line[..line.len().min(160)]);
                     eprintln!("sogar: skipping malformed eslogger line ({e}): {preview}");
                 } else if stats.malformed % 1000 == 0 {
-                    eprintln!("sogar: {} malformed eslogger lines skipped so far", stats.malformed);
+                    eprintln!(
+                        "sogar: {} malformed eslogger lines skipped so far",
+                        stats.malformed
+                    );
                 }
             }
         }
@@ -757,31 +769,98 @@ pub(crate) mod tests {
 
     #[test]
     fn parses_file_events() {
-        let open = parse(&message(7, 1, "/bin/cat", json!({"open": {"file": {"path": "/Users/dev/.ssh/id_rsa"}, "fflag": 1}})));
-        assert_eq!(open.kind, EventKind::Open { path: "/Users/dev/.ssh/id_rsa".into(), fflag: 1 });
+        let open = parse(&message(
+            7,
+            1,
+            "/bin/cat",
+            json!({"open": {"file": {"path": "/Users/dev/.ssh/id_rsa"}, "fflag": 1}}),
+        ));
+        assert_eq!(
+            open.kind,
+            EventKind::Open {
+                path: "/Users/dev/.ssh/id_rsa".into(),
+                fflag: 1
+            }
+        );
 
-        let write = parse(&message(7, 1, "/bin/cat", json!({"write": {"target": {"path": "/tmp/out"}}})));
-        assert_eq!(write.kind, EventKind::Write { path: "/tmp/out".into() });
+        let write = parse(&message(
+            7,
+            1,
+            "/bin/cat",
+            json!({"write": {"target": {"path": "/tmp/out"}}}),
+        ));
+        assert_eq!(
+            write.kind,
+            EventKind::Write {
+                path: "/tmp/out".into()
+            }
+        );
 
-        let unlink = parse(&message(7, 1, "/bin/rm", json!({"unlink": {"target": {"path": "/tmp/x"}, "parent_dir": {"path": "/tmp"}}})));
-        assert_eq!(unlink.kind, EventKind::Unlink { path: "/tmp/x".into() });
+        let unlink = parse(&message(
+            7,
+            1,
+            "/bin/rm",
+            json!({"unlink": {"target": {"path": "/tmp/x"}, "parent_dir": {"path": "/tmp"}}}),
+        ));
+        assert_eq!(
+            unlink.kind,
+            EventKind::Unlink {
+                path: "/tmp/x".into()
+            }
+        );
 
-        let create_existing = parse(&message(7, 1, "/bin/x", json!({"create": {"destination_type": 0,
-            "destination": {"existing_file": {"path": "/Users/dev/a.txt"}}}})));
-        assert_eq!(create_existing.kind, EventKind::Create { path: "/Users/dev/a.txt".into() });
+        let create_existing = parse(&message(
+            7,
+            1,
+            "/bin/x",
+            json!({"create": {"destination_type": 0,
+            "destination": {"existing_file": {"path": "/Users/dev/a.txt"}}}}),
+        ));
+        assert_eq!(
+            create_existing.kind,
+            EventKind::Create {
+                path: "/Users/dev/a.txt".into()
+            }
+        );
 
-        let create_new = parse(&message(7, 1, "/bin/x", json!({"create": {"destination_type": 1,
-            "destination": {"new_path": {"dir": {"path": "/Users/dev/"}, "filename": "b.txt", "mode": 420}}}})));
-        assert_eq!(create_new.kind, EventKind::Create { path: "/Users/dev/b.txt".into() });
+        let create_new = parse(&message(
+            7,
+            1,
+            "/bin/x",
+            json!({"create": {"destination_type": 1,
+            "destination": {"new_path": {"dir": {"path": "/Users/dev/"}, "filename": "b.txt", "mode": 420}}}}),
+        ));
+        assert_eq!(
+            create_new.kind,
+            EventKind::Create {
+                path: "/Users/dev/b.txt".into()
+            }
+        );
 
-        let rename = parse(&message(7, 1, "/bin/mv", json!({"rename": {"source": {"path": "/tmp/a"},
-            "destination_type": 1, "destination": {"new_path": {"dir": {"path": "/tmp"}, "filename": "b"}}}})));
-        assert_eq!(rename.kind, EventKind::Rename { source: "/tmp/a".into(), destination: "/tmp/b".into() });
+        let rename = parse(&message(
+            7,
+            1,
+            "/bin/mv",
+            json!({"rename": {"source": {"path": "/tmp/a"},
+            "destination_type": 1, "destination": {"new_path": {"dir": {"path": "/tmp"}, "filename": "b"}}}}),
+        ));
+        assert_eq!(
+            rename.kind,
+            EventKind::Rename {
+                source: "/tmp/a".into(),
+                destination: "/tmp/b".into()
+            }
+        );
     }
 
     #[test]
     fn parses_lifecycle_events() {
-        let fork = parse(&message(10, 1, "/bin/zsh", json!({"fork": {"child": {"audit_token": {"pid": 11}, "ppid": 10}}})));
+        let fork = parse(&message(
+            10,
+            1,
+            "/bin/zsh",
+            json!({"fork": {"child": {"audit_token": {"pid": 11}, "ppid": 10}}}),
+        ));
         assert_eq!(fork.kind, EventKind::Fork { child_pid: 11 });
         let exit = parse(&message(10, 1, "/bin/zsh", json!({"exit": {"stat": 0}})));
         assert_eq!(exit.kind, EventKind::Exit);
@@ -789,17 +868,31 @@ pub(crate) mod tests {
 
     #[test]
     fn tolerates_nulls_missing_fields_and_unknown_events() {
-        let mut msg = message(5, 1, "/bin/x", json!({"open": {"file": {"path": "/tmp/a"}, "fflag": null}}));
+        let mut msg = message(
+            5,
+            1,
+            "/bin/x",
+            json!({"open": {"file": {"path": "/tmp/a"}, "fflag": null}}),
+        );
         msg["process"]["responsible_audit_token"] = Value::Null;
         msg["process"]["signing_id"] = Value::Null;
         msg["time"] = Value::Null;
         let ev = parse(&msg);
         assert_eq!(ev.responsible_pid, 0);
         assert_eq!(ev.signing_id, None);
-        assert_eq!(ev.kind, EventKind::Open { path: "/tmp/a".into(), fflag: 0 });
+        assert_eq!(
+            ev.kind,
+            EventKind::Open {
+                path: "/tmp/a".into(),
+                fflag: 0
+            }
+        );
 
         let unknown = message(5, 1, "/bin/x", json!({"mmap": {"source": {"path": "/x"}}}));
-        assert_eq!(parse_line(unknown.to_string().as_bytes()).expect("valid"), None);
+        assert_eq!(
+            parse_line(unknown.to_string().as_bytes()).expect("valid"),
+            None
+        );
 
         assert!(parse_line(b"{not json").is_err());
         assert!(parse_line(b"42").is_err());
@@ -822,8 +915,14 @@ pub(crate) mod tests {
         ] {
             assert_eq!(sensitivity(path), Sensitivity::Credential, "{path}");
         }
-        assert_eq!(sensitivity("/Users/dev/.claude/settings.json"), Sensitivity::AgentConfig);
-        assert_eq!(sensitivity(r#"{"path":"/Users/dev/.ssh/id_rsa"}"#), Sensitivity::Credential);
+        assert_eq!(
+            sensitivity("/Users/dev/.claude/settings.json"),
+            Sensitivity::AgentConfig
+        );
+        assert_eq!(
+            sensitivity(r#"{"path":"/Users/dev/.ssh/id_rsa"}"#),
+            Sensitivity::Credential
+        );
         for path in [
             "/Users/dev/app/src/main.rs",
             "/Users/dev/app/.env.example",
@@ -837,24 +936,46 @@ pub(crate) mod tests {
 
     #[test]
     fn agent_root_may_touch_its_own_config_but_not_credentials() {
-        let claude_cfg = parse(&message(9, 1, "/usr/local/bin/claude",
-            json!({"write": {"target": {"path": "/Users/dev/.claude/projects/x.jsonl"}}})));
+        let claude_cfg = parse(&message(
+            9,
+            1,
+            "/usr/local/bin/claude",
+            json!({"write": {"target": {"path": "/Users/dev/.claude/projects/x.jsonl"}}}),
+        ));
         assert_eq!(event_severity(&claude_cfg, true), Severity::Info);
         assert_eq!(event_severity(&claude_cfg, false), Severity::Critical);
 
-        let ssh = parse(&message(9, 1, "/usr/local/bin/claude",
-            json!({"open": {"file": {"path": "/Users/dev/.ssh/id_rsa"}, "fflag": 1}})));
+        let ssh = parse(&message(
+            9,
+            1,
+            "/usr/local/bin/claude",
+            json!({"open": {"file": {"path": "/Users/dev/.ssh/id_rsa"}, "fflag": 1}}),
+        ));
         assert_eq!(event_severity(&ssh, true), Severity::Critical);
 
-        let exec = parse(&message(9, 1, "/bin/zsh", json!({"exec": {
-            "target": {"executable": {"path": "/bin/cat"}}, "args": ["cat", "/Users/dev/.aws/credentials"]}})));
+        let exec = parse(&message(
+            9,
+            1,
+            "/bin/zsh",
+            json!({"exec": {
+            "target": {"executable": {"path": "/bin/cat"}}, "args": ["cat", "/Users/dev/.aws/credentials"]}}),
+        ));
         assert_eq!(event_severity(&exec, false), Severity::Critical);
     }
 
     #[test]
     fn filters_system_noise_but_keeps_user_and_sensitive_paths() {
-        let ev = |path: &str| parse(&message(9, 1, "/bin/x", json!({"open": {"file": {"path": path}, "fflag": 1}})));
-        assert!(is_noise(&ev("/System/Library/Frameworks/Foundation.framework/Foundation")));
+        let ev = |path: &str| {
+            parse(&message(
+                9,
+                1,
+                "/bin/x",
+                json!({"open": {"file": {"path": path}, "fflag": 1}}),
+            ))
+        };
+        assert!(is_noise(&ev(
+            "/System/Library/Frameworks/Foundation.framework/Foundation"
+        )));
         assert!(is_noise(&ev("/usr/lib/libSystem.B.dylib")));
         assert!(is_noise(&ev("/dev/null")));
         assert!(is_noise(&ev("/private/var/db/timezone/zoneinfo")));
@@ -863,14 +984,24 @@ pub(crate) mod tests {
         assert!(!is_noise(&ev("/Users/dev/app/src/main.rs")));
         assert!(!is_noise(&ev("/etc/hosts")));
 
-        let exec = parse(&message(9, 1, "/bin/zsh", json!({"exec": {"target": {"executable": {"path": "/System/Library/x"}}}})));
+        let exec = parse(&message(
+            9,
+            1,
+            "/bin/zsh",
+            json!({"exec": {"target": {"executable": {"path": "/System/Library/x"}}}}),
+        ));
         assert!(!is_noise(&exec));
     }
 
     #[test]
     fn loader_reads_of_binaries_are_noise_but_execs_and_writes_are_not() {
         let open = |path: &str, fflag: i32| {
-            parse(&message(9, 1, "/bin/cat", json!({"open": {"file": {"path": path}, "fflag": fflag}})))
+            parse(&message(
+                9,
+                1,
+                "/bin/cat",
+                json!({"open": {"file": {"path": path}, "fflag": fflag}}),
+            ))
         };
         for path in [
             "/bin/cat",
@@ -888,21 +1019,41 @@ pub(crate) mod tests {
         }
         // Writing into these locations is not loader activity.
         assert!(!is_noise(&open("/opt/homebrew/bin/node", 0x2)));
-        assert!(!is_noise(&open("/Applications/Evil.app/Contents/MacOS/x", 0x3)));
+        assert!(!is_noise(&open(
+            "/Applications/Evil.app/Contents/MacOS/x",
+            0x3
+        )));
         // Look-alike prefixes and other system paths are not covered.
         assert!(!is_noise(&open("/binaries/x", 0x1)));
         assert!(!is_noise(&open("/opt/homebrew/etc/gitconfig", 0x1)));
         // The exec itself is always recorded.
-        let exec = parse(&message(9, 1, "/bin/zsh", json!({"exec": {"target": {"executable": {"path": "/bin/cat"}}}})));
+        let exec = parse(&message(
+            9,
+            1,
+            "/bin/zsh",
+            json!({"exec": {"target": {"executable": {"path": "/bin/cat"}}}}),
+        ));
         assert!(!is_noise(&exec));
     }
 
     #[test]
     fn vendor_cache_churn_is_noise_unless_a_child_process_touches_it() {
         let helper = "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper";
-        let write = |exe: &str, path: &str| parse(&message(9, 1, exe, json!({"write": {"target": {"path": path}}})));
+        let write = |exe: &str, path: &str| {
+            parse(&message(
+                9,
+                1,
+                exe,
+                json!({"write": {"target": {"path": path}}}),
+            ))
+        };
         let read = |exe: &str, path: &str| {
-            parse(&message(9, 1, exe, json!({"open": {"file": {"path": path}, "fflag": 1}})))
+            parse(&message(
+                9,
+                1,
+                exe,
+                json!({"open": {"file": {"path": path}, "fflag": 1}}),
+            ))
         };
 
         for path in [
@@ -915,24 +1066,41 @@ pub(crate) mod tests {
             "/Users/dev/Library/Logs/Claude/main.log",
         ] {
             assert!(is_noise(&write(helper, path)), "{path}");
-            assert!(is_noise(&read("/System/Library/CoreServices/x", path)), "{path}");
+            assert!(
+                is_noise(&read("/System/Library/CoreServices/x", path)),
+                "{path}"
+            );
         }
 
         // A shell/interpreter child reading app caches is exactly what we want to see.
         let cache = "/Users/dev/Library/Application Support/Claude/Cache/Cache_Data/1";
         assert!(!is_noise(&read("/bin/bash", cache)));
         assert!(!is_noise(&read("/opt/homebrew/bin/python3.12", cache)));
-        assert!(!is_noise(&read("/opt/homebrew/bin/node", "/Users/dev/Library/Caches/x")));
+        assert!(!is_noise(&read(
+            "/opt/homebrew/bin/node",
+            "/Users/dev/Library/Caches/x"
+        )));
 
         // Non-cache app state (cookies, local storage) and other apps stay visible.
         // Cookies and other apps stay visible.
-        assert!(!is_noise(&write(helper, "/Users/dev/Library/Application Support/Claude/Cookies")));
-        assert!(!is_noise(&write(helper, "/Users/dev/Library/Application Support/Slack/Cache/x")));
+        assert!(!is_noise(&write(
+            helper,
+            "/Users/dev/Library/Application Support/Claude/Cookies"
+        )));
+        assert!(!is_noise(&write(
+            helper,
+            "/Users/dev/Library/Application Support/Slack/Cache/x"
+        )));
 
         // A rename out of the cache into the project is not routine.
-        let rename = parse(&message(9, 1, helper, json!({"rename": {
+        let rename = parse(&message(
+            9,
+            1,
+            helper,
+            json!({"rename": {
             "source": {"path": "/Users/dev/Library/Caches/x"},
-            "destination": {"existing_file": {"path": "/Users/dev/app/x"}}}})));
+            "destination": {"existing_file": {"path": "/Users/dev/app/x"}}}}),
+        ));
         assert!(!is_noise(&rename));
     }
 
@@ -940,7 +1108,14 @@ pub(crate) mod tests {
     fn vendor_web_storage_and_git_shadow_are_churn_only_for_vendor_processes() {
         let helper = "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper";
         let claude = "/Applications/Claude.app/Contents/MacOS/Claude";
-        let ev = |exe: &str, path: &str| parse(&message(9, 1, exe, json!({"write": {"target": {"path": path}}})));
+        let ev = |exe: &str, path: &str| {
+            parse(&message(
+                9,
+                1,
+                exe,
+                json!({"write": {"target": {"path": path}}}),
+            ))
+        };
         let support = "/Users/dev/Library/Application Support";
         for path in [
             format!("{support}/Claude/IndexedDB/https_claude.ai_0.indexeddb.leveldb/000123.log"),
@@ -951,25 +1126,61 @@ pub(crate) mod tests {
             format!("{support}/Cursor/Partitions/main/IndexedDB/x"),
             format!("{support}/Windsurf/Local Storage/leveldb/2.ldb"),
         ] {
-            assert_eq!(noise_class(&ev(helper, &path)), Some(Noise::VendorChurn), "{path}");
-            assert_eq!(noise_class(&ev(claude, &path)), Some(Noise::VendorChurn), "{path}");
-            for child in ["/bin/bash", "/bin/sh", "/opt/homebrew/bin/node", "/usr/bin/python3", "/usr/bin/curl"] {
+            assert_eq!(
+                noise_class(&ev(helper, &path)),
+                Some(Noise::VendorChurn),
+                "{path}"
+            );
+            assert_eq!(
+                noise_class(&ev(claude, &path)),
+                Some(Noise::VendorChurn),
+                "{path}"
+            );
+            for child in [
+                "/bin/bash",
+                "/bin/sh",
+                "/opt/homebrew/bin/node",
+                "/usr/bin/python3",
+                "/usr/bin/curl",
+            ] {
                 assert_eq!(noise_class(&ev(child, &path)), None, "{child} {path}");
             }
         }
         // Similar names elsewhere are not vendor state.
         assert_eq!(noise_class(&ev(helper, "/Users/dev/app/IndexedDB/x")), None);
-        assert_eq!(noise_class(&ev(helper, &format!("{support}/Slack/IndexedDB/x"))), None);
-        assert_eq!(noise_class(&ev(helper, &format!("{support}/Claude/IndexedDBx/y"))), None);
+        assert_eq!(
+            noise_class(&ev(helper, &format!("{support}/Slack/IndexedDB/x"))),
+            None
+        );
+        assert_eq!(
+            noise_class(&ev(helper, &format!("{support}/Claude/IndexedDBx/y"))),
+            None
+        );
     }
 
     #[test]
     fn noise_classes_distinguish_system_loader_and_vendor_churn() {
-        let open = |exe: &str, path: &str| parse(&message(9, 1, exe, json!({"open": {"file": {"path": path}, "fflag": 1}})));
-        assert_eq!(noise_class(&open("/bin/cat", "/usr/lib/dyld")), Some(Noise::System));
-        assert_eq!(noise_class(&open("/bin/cat", "/bin/cat")), Some(Noise::Loader));
+        let open = |exe: &str, path: &str| {
+            parse(&message(
+                9,
+                1,
+                exe,
+                json!({"open": {"file": {"path": path}, "fflag": 1}}),
+            ))
+        };
         assert_eq!(
-            noise_class(&open("/Applications/Claude.app/Contents/MacOS/Claude", "/Users/dev/Library/Logs/Claude/main.log")),
+            noise_class(&open("/bin/cat", "/usr/lib/dyld")),
+            Some(Noise::System)
+        );
+        assert_eq!(
+            noise_class(&open("/bin/cat", "/bin/cat")),
+            Some(Noise::Loader)
+        );
+        assert_eq!(
+            noise_class(&open(
+                "/Applications/Claude.app/Contents/MacOS/Claude",
+                "/Users/dev/Library/Logs/Claude/main.log"
+            )),
             Some(Noise::VendorChurn)
         );
     }
@@ -983,7 +1194,13 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn pump_skips_malformed_lines_and_keeps_going() {
-        let good = message(3, 1, "/bin/x", json!({"write": {"target": {"path": "/tmp/a"}}})).to_string();
+        let good = message(
+            3,
+            1,
+            "/bin/x",
+            json!({"write": {"target": {"path": "/tmp/a"}}}),
+        )
+        .to_string();
         let input = format!("garbage\n\n{good}\n{{\"event\":{{\"mmap\":{{}}}}}}\n{good}");
         let (tx, mut rx) = mpsc::channel(8);
         let stats = pump(input.as_bytes(), tx).await;

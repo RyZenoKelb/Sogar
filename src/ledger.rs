@@ -78,7 +78,8 @@ impl Ledger {
     /// Appends one entry (which must serialize to a JSON object) as a single
     /// `write(2)` and returns its sequence number.
     pub fn append<T: Serialize>(&mut self, entry: &T) -> Result<u64> {
-        let value = serde_json::to_value(entry).context("failed to serialize flight record entry")?;
+        let value =
+            serde_json::to_value(entry).context("failed to serialize flight record entry")?;
         if !value.is_object() {
             bail!("flight record entries must be JSON objects");
         }
@@ -122,10 +123,16 @@ impl Ledger {
         if !is_root() {
             return Ok(());
         }
-        let Some(gid) = std::env::var("SUDO_GID").ok().and_then(|g| g.parse::<u32>().ok()) else {
+        let Some(gid) = std::env::var("SUDO_GID")
+            .ok()
+            .and_then(|g| g.parse::<u32>().ok())
+        else {
             return Ok(());
         };
-        let targets = [(Some(self.path.as_path()), 0o640), (self.created_dir.as_deref(), 0o750)];
+        let targets = [
+            (Some(self.path.as_path()), 0o640),
+            (self.created_dir.as_deref(), 0o750),
+        ];
         for (path, mode) in targets {
             let Some(path) = path else { continue };
             std::os::unix::fs::chown(path, Some(0), Some(gid))
@@ -148,7 +155,10 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 fn resume_from(last: &[u8]) -> std::result::Result<(u64, String), String> {
     let value: Value = serde_json::from_slice(last).map_err(|e| format!("not valid JSON: {e}"))?;
-    let seq = value.get("seq").and_then(Value::as_u64).ok_or("missing \"seq\"")?;
+    let seq = value
+        .get("seq")
+        .and_then(Value::as_u64)
+        .ok_or("missing \"seq\"")?;
     let prev = value
         .get("prev_hash")
         .and_then(Value::as_str)
@@ -247,7 +257,11 @@ pub enum Verification {
 
 /// Checks one record against the expected position in the chain and returns
 /// its hash.
-fn check_record(line: &[u8], expected_seq: u64, expected_prev: &str) -> std::result::Result<String, String> {
+fn check_record(
+    line: &[u8],
+    expected_seq: u64,
+    expected_prev: &str,
+) -> std::result::Result<String, String> {
     let value: Value = serde_json::from_slice(line).map_err(|e| format!("not valid JSON: {e}"))?;
     let Value::Object(mut record) = value else {
         return Err("record is not a JSON object".into());
@@ -256,7 +270,10 @@ fn check_record(line: &[u8], expected_seq: u64, expected_prev: &str) -> std::res
         Some(Value::String(hash)) => hash,
         _ => return Err("missing \"hash\"".into()),
     };
-    let seq = record.get("seq").and_then(Value::as_u64).ok_or("missing \"seq\"")?;
+    let seq = record
+        .get("seq")
+        .and_then(Value::as_u64)
+        .ok_or("missing \"seq\"")?;
     if seq != expected_seq {
         return Err(format!(
             "sequence {seq} where {expected_seq} was expected (record inserted, deleted or reordered)"
@@ -294,7 +311,11 @@ pub fn verify_reader<R: BufRead>(mut reader: R) -> Result<Verification> {
     let mut buf = Vec::new();
     loop {
         buf.clear();
-        if reader.read_until(b'\n', &mut buf).context("failed to read flight record")? == 0 {
+        if reader
+            .read_until(b'\n', &mut buf)
+            .context("failed to read flight record")?
+            == 0
+        {
             break;
         }
         line_no += 1;
@@ -309,10 +330,18 @@ pub fn verify_reader<R: BufRead>(mut reader: R) -> Result<Verification> {
                 prev = hash;
                 records += 1;
             }
-            Err(reason) => return Ok(Verification::Tampered { line: line_no, reason }),
+            Err(reason) => {
+                return Ok(Verification::Tampered {
+                    line: line_no,
+                    reason,
+                })
+            }
         }
     }
-    Ok(Verification::Valid { records, head_hash: prev })
+    Ok(Verification::Valid {
+        records,
+        head_hash: prev,
+    })
 }
 
 /// One record that passed chain verification.
@@ -335,11 +364,19 @@ pub fn read_verified(path: &Path) -> Result<(Verification, Vec<VerifiedRecord>)>
     let mut records = Vec::with_capacity(trusted.min(1 << 20));
     for line in BufReader::new(file).lines().take(trusted) {
         let line = line.with_context(|| format!("failed to read {}", path.display()))?;
-        let mut record: Value = serde_json::from_str(&line).context("verified record is not JSON")?;
+        let mut record: Value =
+            serde_json::from_str(&line).context("verified record is not JSON")?;
         records.push(VerifiedRecord {
             seq: record.get("seq").and_then(Value::as_u64).unwrap_or(0),
-            hash: record.get("hash").and_then(Value::as_str).unwrap_or("").to_owned(),
-            entry: record.get_mut("entry").map(Value::take).unwrap_or(Value::Null),
+            hash: record
+                .get("hash")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned(),
+            entry: record
+                .get_mut("entry")
+                .map(Value::take)
+                .unwrap_or(Value::Null),
         });
     }
     Ok((verification, records))
@@ -351,7 +388,9 @@ pub fn read_verified(path: &Path) -> Result<(Verification, Vec<VerifiedRecord>)>
 
 /// `~/.sogar/flight_record.jsonl` of the invoking user (also under `sudo`).
 pub fn default_path() -> Result<PathBuf> {
-    Ok(invoking_user_home()?.join(".sogar").join("flight_record.jsonl"))
+    Ok(invoking_user_home()?
+        .join(".sogar")
+        .join("flight_record.jsonl"))
 }
 
 pub(crate) fn is_root() -> bool {
@@ -361,7 +400,9 @@ pub(crate) fn is_root() -> bool {
 
 pub(crate) fn invoking_user_home() -> Result<PathBuf> {
     if is_root() {
-        let sudo_user = std::env::var("SUDO_USER").ok().filter(|u| !u.is_empty() && u != "root");
+        let sudo_user = std::env::var("SUDO_USER")
+            .ok()
+            .filter(|u| !u.is_empty() && u != "root");
         if let Some(home) = sudo_user.as_deref().and_then(home_of_user) {
             return Ok(home);
         }
@@ -412,7 +453,11 @@ mod tests {
             &self.0
         }
         fn lines(&self) -> Vec<String> {
-            fs::read_to_string(&self.0).expect("read").lines().map(str::to_owned).collect()
+            fs::read_to_string(&self.0)
+                .expect("read")
+                .lines()
+                .map(str::to_owned)
+                .collect()
         }
         fn write_lines(&self, lines: &[String]) {
             let mut text = lines.join("\n");
@@ -450,14 +495,23 @@ mod tests {
     #[test]
     fn canonical_json_sorts_keys_recursively() {
         let v = json!({"b": 1, "a": {"z": [1, {"y": null, "x": true}], "c": "é\n"}});
-        assert_eq!(canonical_json(&v), r#"{"a":{"c":"é\n","z":[1,{"x":true,"y":null}]},"b":1}"#);
+        assert_eq!(
+            canonical_json(&v),
+            r#"{"a":{"c":"é\n","z":[1,{"x":true,"y":null}]},"b":1}"#
+        );
     }
 
     #[test]
     fn empty_ledger_is_valid() {
         let t = TempLedger::new();
         Ledger::open(t.path()).expect("open");
-        assert_eq!(verify(&t), Verification::Valid { records: 0, head_hash: GENESIS_HASH.into() });
+        assert_eq!(
+            verify(&t),
+            Verification::Valid {
+                records: 0,
+                head_hash: GENESIS_HASH.into()
+            }
+        );
     }
 
     #[test]
@@ -469,7 +523,13 @@ mod tests {
         let first: Value = serde_json::from_str(&lines[0]).expect("json");
         assert_eq!(first["prev_hash"], GENESIS_HASH);
         assert_eq!(first["seq"], 1);
-        assert_eq!(verify(&t), Verification::Valid { records: 5, head_hash: head });
+        assert_eq!(
+            verify(&t),
+            Verification::Valid {
+                records: 5,
+                head_hash: head
+            }
+        );
     }
 
     #[test]
@@ -504,7 +564,8 @@ mod tests {
         let t = TempLedger::new();
         write_records(&t, 3);
         let mut lines = t.lines();
-        let mut rec: serde_json::Map<String, Value> = serde_json::from_str(&lines[0]).expect("json");
+        let mut rec: serde_json::Map<String, Value> =
+            serde_json::from_str(&lines[0]).expect("json");
         rec.insert("entry".into(), json!({"event": "open", "path": "/forged"}));
         rec.remove("hash");
         let hash = sha256_hex(canonical_json(&Value::Object(rec.clone())).as_bytes());
@@ -540,7 +601,10 @@ mod tests {
         text.truncate(text.len() - 5);
         fs::write(t.path(), text).expect("write");
         assert!(matches!(verify(&t), Verification::Tampered { line: 4, .. }));
-        assert!(Ledger::open(t.path()).is_err(), "must not extend a torn record");
+        assert!(
+            Ledger::open(t.path()).is_err(),
+            "must not extend a torn record"
+        );
     }
 
     #[test]
@@ -558,8 +622,12 @@ mod tests {
     fn resumes_records_longer_than_one_tail_chunk() {
         let t = TempLedger::new();
         let mut ledger = Ledger::open(t.path()).expect("open");
-        ledger.append(&json!({"blob": "x".repeat(20_000)})).expect("append");
-        ledger.append(&json!({"blob": "y".repeat(30_000)})).expect("append");
+        ledger
+            .append(&json!({"blob": "x".repeat(20_000)}))
+            .expect("append");
+        ledger
+            .append(&json!({"blob": "y".repeat(30_000)}))
+            .expect("append");
         let head = ledger.head_hash().to_owned();
         drop(ledger);
         let ledger = Ledger::open(t.path()).expect("reopen");

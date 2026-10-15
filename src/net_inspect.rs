@@ -55,8 +55,20 @@ pub fn is_network_binary(path: &str) -> bool {
     let name = basename(path);
     matches!(
         name,
-        "curl" | "wget" | "nc" | "ncat" | "ssh" | "scp" | "sftp" | "node" | "deno" | "bun"
-            | "ruby" | "php" | "git" | "gh"
+        "curl"
+            | "wget"
+            | "nc"
+            | "ncat"
+            | "ssh"
+            | "scp"
+            | "sftp"
+            | "node"
+            | "deno"
+            | "bun"
+            | "ruby"
+            | "php"
+            | "git"
+            | "gh"
     ) || name.starts_with("python")
 }
 
@@ -276,7 +288,11 @@ mod sys {
         let (ini, protocol, state) = match psi.soi_kind {
             SOCKINFO_TCP => {
                 let tcp = unsafe { psi.soi_proto.pri_tcp };
-                (tcp.tcpsi_ini, Transport::Tcp, Some(tcp_state_name(tcp.tcpsi_state)))
+                (
+                    tcp.tcpsi_ini,
+                    Transport::Tcp,
+                    Some(tcp_state_name(tcp.tcpsi_state)),
+                )
             }
             SOCKINFO_IN if psi.soi_type == libc::SOCK_DGRAM => {
                 (unsafe { psi.soi_proto.pri_in }, Transport::Udp, None)
@@ -298,9 +314,8 @@ mod sys {
     fn socket_fds(pid: libc::c_int) -> Vec<i32> {
         let entry = size_of::<libc::proc_fdinfo>();
         // SAFETY: a null buffer asks the kernel for the required size.
-        let needed = unsafe {
-            libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0)
-        };
+        let needed =
+            unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
         let Ok(needed) = usize::try_from(needed) else {
             return Vec::new();
         };
@@ -309,14 +324,23 @@ mod sys {
         }
         // Headroom for descriptors opened between the two calls.
         let capacity = needed / entry + 32;
-        let empty = libc::proc_fdinfo { proc_fd: 0, proc_fdtype: 0 };
+        let empty = libc::proc_fdinfo {
+            proc_fd: 0,
+            proc_fdtype: 0,
+        };
         let mut fds = vec![empty; capacity];
         let Ok(buffer_size) = libc::c_int::try_from(capacity * entry) else {
             return Vec::new();
         };
         // SAFETY: `fds` is valid for `buffer_size` bytes.
         let written = unsafe {
-            libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr().cast(), buffer_size)
+            libc::proc_pidinfo(
+                pid,
+                libc::PROC_PIDLISTFDS,
+                0,
+                fds.as_mut_ptr().cast(),
+                buffer_size,
+            )
         };
         let Ok(written) = usize::try_from(written) else {
             return Vec::new();
@@ -394,7 +418,12 @@ mod tests {
         ] {
             assert!(is_network_binary(path), "{path}");
         }
-        for path in ["/bin/cat", "/bin/ls", "/usr/bin/sshd-keygen-wrapper", "/usr/bin/github-ish"] {
+        for path in [
+            "/bin/cat",
+            "/bin/ls",
+            "/usr/bin/sshd-keygen-wrapper",
+            "/usr/bin/github-ish",
+        ] {
             assert!(!is_network_binary(path), "{path}");
         }
     }
@@ -496,7 +525,13 @@ mod tests {
             state: Some(state),
         };
         let mut seen = vec![conn("1.1.1.1:443", "SYN_SENT")];
-        merge(&mut seen, vec![conn("1.1.1.1:443", "ESTABLISHED"), conn("8.8.8.8:53", "ESTABLISHED")]);
+        merge(
+            &mut seen,
+            vec![
+                conn("1.1.1.1:443", "ESTABLISHED"),
+                conn("8.8.8.8:53", "ESTABLISHED"),
+            ],
+        );
         assert_eq!(seen.len(), 2);
         assert_eq!(seen[0].state, Some("ESTABLISHED"));
     }

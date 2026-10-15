@@ -123,7 +123,9 @@ fn epoch_millis(entry: &Value) -> i64 {
 }
 
 fn ocsf_file(path: &str, type_id: u8) -> Value {
-    let parent = path.rsplit_once('/').map(|(p, _)| if p.is_empty() { "/" } else { p });
+    let parent = path
+        .rsplit_once('/')
+        .map(|(p, _)| if p.is_empty() { "/" } else { p });
     json!({"path": path, "name": basename(path), "parent_folder": parent, "type_id": type_id})
 }
 
@@ -146,11 +148,21 @@ fn ocsf_base(
         ("category_name", json!(category_name)),
         ("activity_id", json!(activity_id)),
         ("activity_name", json!(activity_name)),
-        ("type_uid", json!(u64::from(class_uid) * 100 + u64::from(activity_id))),
+        (
+            "type_uid",
+            json!(u64::from(class_uid) * 100 + u64::from(activity_id)),
+        ),
         ("type_name", json!(format!("{class_name}: {activity_name}"))),
         ("time", json!(epoch_millis(entry))),
         ("severity_id", json!(if critical { 5 } else { 1 })),
-        ("severity", json!(if critical { "Critical" } else { "Informational" })),
+        (
+            "severity",
+            json!(if critical {
+                "Critical"
+            } else {
+                "Informational"
+            }),
+        ),
         ("message", json!(describe(entry))),
         (
             "metadata",
@@ -182,12 +194,23 @@ fn ocsf_base(
         }
         actor.insert("process".into(), process);
     } else if let Some(child) = entry.pointer("/mcp/child_pid").and_then(Value::as_u64) {
-        actor.insert("process".into(), json!({"pid": child, "name": "MCP server"}));
+        actor.insert(
+            "process".into(),
+            json!({"pid": child, "name": "MCP server"}),
+        );
     }
     event.insert("actor".into(), Value::Object(actor));
 
     let mut sogar = Map::new();
-    for key in ["actor", "mcp", "mcp_server", "policy_violation", "severity", "responsible_pid", "signing_id"] {
+    for key in [
+        "actor",
+        "mcp",
+        "mcp_server",
+        "policy_violation",
+        "severity",
+        "responsible_pid",
+        "signing_id",
+    ] {
         if let Some(value) = entry.get(key) {
             sogar.insert(key.into(), value.clone());
         }
@@ -205,7 +228,12 @@ fn ocsf_events(record: &VerifiedRecord, device: &Value) -> Vec<Value> {
 
     let primary = match event {
         "exec" => {
-            let mut e = ocsf_base(record, device, (1007, "Process Activity", SYSTEM.0, SYSTEM.1), (1, "Launch"));
+            let mut e = ocsf_base(
+                record,
+                device,
+                (1007, "Process Activity", SYSTEM.0, SYSTEM.1),
+                (1, "Launch"),
+            );
             let mut process = json!({"file": ocsf_file(path, 1)});
             if let Some(pid) = u64_field(entry, "pid") {
                 process["pid"] = json!(pid);
@@ -231,7 +259,12 @@ fn ocsf_events(record: &VerifiedRecord, device: &Value) -> Vec<Value> {
                 "rename" => (5, "Rename"),
                 _ => (14, "Open"),
             };
-            let mut e = ocsf_base(record, device, (1001, "File System Activity", SYSTEM.0, SYSTEM.1), activity);
+            let mut e = ocsf_base(
+                record,
+                device,
+                (1001, "File System Activity", SYSTEM.0, SYSTEM.1),
+                activity,
+            );
             let type_id = if event == "uipc_connect" { 5 } else { 1 }; // 5 = Local Socket
             e.insert("file".into(), ocsf_file(path, type_id));
             if let Some(destination) = str_field(entry, "destination") {
@@ -240,8 +273,17 @@ fn ocsf_events(record: &VerifiedRecord, device: &Value) -> Vec<Value> {
             Some(e)
         }
         "mcp_call_start" | "mcp_call_end" => {
-            let activity = if event == "mcp_call_start" { "Tool Call Start" } else { "Tool Call End" };
-            let mut e = ocsf_base(record, device, (6003, "API Activity", 6, "Application Activity"), (99, activity));
+            let activity = if event == "mcp_call_start" {
+                "Tool Call Start"
+            } else {
+                "Tool Call End"
+            };
+            let mut e = ocsf_base(
+                record,
+                device,
+                (6003, "API Activity", 6, "Application Activity"),
+                (99, activity),
+            );
             let mcp = entry.get("mcp").unwrap_or(&Value::Null);
             let rpc_id = mcp.get("rpc_id").map_or_else(String::new, |id| {
                 id.as_str().map_or_else(|| id.to_string(), str::to_owned)
@@ -255,7 +297,10 @@ fn ocsf_events(record: &VerifiedRecord, device: &Value) -> Vec<Value> {
                 api["response"] = json!({"error": "tool call failed"});
             }
             e.insert("api".into(), api);
-            e.insert("src_endpoint".into(), json!({"hostname": device["hostname"]}));
+            e.insert(
+                "src_endpoint".into(),
+                json!({"hostname": device["hostname"]}),
+            );
             Some(e)
         }
         _ => None,
@@ -263,10 +308,24 @@ fn ocsf_events(record: &VerifiedRecord, device: &Value) -> Vec<Value> {
     events.extend(primary.map(Value::Object));
 
     // Each socket captured by libproc becomes its own Network Activity event.
-    for conn in entry.get("network_connections").and_then(Value::as_array).into_iter().flatten() {
+    for conn in entry
+        .get("network_connections")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         let listening = str_field(conn, "state") == Some("LISTEN");
-        let activity = if listening { (7, "Listen") } else { (1, "Open") };
-        let mut e = ocsf_base(record, device, (4001, "Network Activity", 4, "Network Activity"), activity);
+        let activity = if listening {
+            (7, "Listen")
+        } else {
+            (1, "Open")
+        };
+        let mut e = ocsf_base(
+            record,
+            device,
+            (4001, "Network Activity", 4, "Network Activity"),
+            activity,
+        );
         let endpoint = |addr: Option<&str>| {
             let parsed = addr.and_then(|a| a.parse::<std::net::SocketAddr>().ok());
             parsed.map(|a| json!({"ip": a.ip().to_string(), "port": a.port()}))
@@ -342,7 +401,13 @@ fn file_uri(path: &str) -> String {
     uri
 }
 
-fn sarif_result(rule: (&str, &str, &str), message: String, location: &str, fingerprint: &str, properties: Value) -> Value {
+fn sarif_result(
+    rule: (&str, &str, &str),
+    message: String,
+    location: &str,
+    fingerprint: &str,
+    properties: Value,
+) -> Value {
     let rule_index = RULES.iter().position(|r| r.0 == rule.0).unwrap_or(0);
     json!({
         "ruleId": rule.0,
@@ -355,7 +420,11 @@ fn sarif_result(rule: (&str, &str, &str), message: String, location: &str, finge
     })
 }
 
-fn to_sarif(records: &[&VerifiedRecord], verification: &Verification, ledger_path: &Path) -> String {
+fn to_sarif(
+    records: &[&VerifiedRecord],
+    verification: &Verification,
+    ledger_path: &Path,
+) -> String {
     let ledger_str = ledger_path.display().to_string();
     let mut results: Vec<Value> = records
         .iter()
@@ -363,18 +432,39 @@ fn to_sarif(records: &[&VerifiedRecord], verification: &Verification, ledger_pat
         .map(|record| {
             let entry = &record.entry;
             let violation = str_field(entry, "policy_violation");
-            let rule = if violation.is_some() { RULE_DRIFT } else { RULE_CRITICAL };
+            let rule = if violation.is_some() {
+                RULE_DRIFT
+            } else {
+                RULE_CRITICAL
+            };
             let location = str_field(entry, "path")
                 .filter(|p| p.starts_with('/'))
                 .unwrap_or(&ledger_str);
             let mut properties = Map::new();
             properties.insert("seq".into(), json!(record.seq));
-            for key in ["time", "event", "actor", "mcp", "mcp_server", "pid", "executable", "args", "network_connections", "policy_violation"] {
+            for key in [
+                "time",
+                "event",
+                "actor",
+                "mcp",
+                "mcp_server",
+                "pid",
+                "executable",
+                "args",
+                "network_connections",
+                "policy_violation",
+            ] {
                 if let Some(value) = entry.get(key) {
                     properties.insert(key.into(), value.clone());
                 }
             }
-            sarif_result(rule, describe(entry), location, &record.hash, Value::Object(properties))
+            sarif_result(
+                rule,
+                describe(entry),
+                location,
+                &record.hash,
+                Value::Object(properties),
+            )
         })
         .collect();
 
@@ -436,7 +526,11 @@ mod tests {
         fn new() -> Self {
             static COUNTER: AtomicU32 = AtomicU32::new(0);
             let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-            Self(std::env::temp_dir().join(format!("sogar-export-{}-{n}", std::process::id())).join("f.jsonl"))
+            Self(
+                std::env::temp_dir()
+                    .join(format!("sogar-export-{}-{n}", std::process::id()))
+                    .join("f.jsonl"),
+            )
         }
     }
 
@@ -478,7 +572,9 @@ mod tests {
     }
 
     fn lines(text: &str) -> Vec<Value> {
-        text.lines().map(|l| serde_json::from_str(l).expect("json line")).collect()
+        text.lines()
+            .map(|l| serde_json::from_str(l).expect("json line"))
+            .collect()
     }
 
     #[test]
@@ -488,14 +584,39 @@ mod tests {
         let all = export(&t.0, Format::Jsonl, ExportOptions::default()).expect("export");
         let rows = lines(&all.text);
         assert_eq!(rows.len(), 5);
-        assert_eq!((rows[0]["seq"].as_u64(), rows[0]["event"].as_str()), (Some(1), Some("mcp_call_start")));
+        assert_eq!(
+            (rows[0]["seq"].as_u64(), rows[0]["event"].as_str()),
+            (Some(1), Some("mcp_call_start"))
+        );
         assert_eq!(rows[0]["hash"].as_str().map(str::len), Some(64));
         assert_eq!(all.findings, 2);
 
-        let critical = export(&t.0, Format::Jsonl, ExportOptions { critical_only: true, after_seq: None }).expect("export");
+        let critical = export(
+            &t.0,
+            Format::Jsonl,
+            ExportOptions {
+                critical_only: true,
+                after_seq: None,
+            },
+        )
+        .expect("export");
         assert_eq!(lines(&critical.text).len(), 2);
-        let after = export(&t.0, Format::Jsonl, ExportOptions { critical_only: false, after_seq: Some(3) }).expect("export");
-        assert_eq!(lines(&after.text).iter().map(|r| r["seq"].as_u64().unwrap_or(0)).collect::<Vec<_>>(), [4, 5]);
+        let after = export(
+            &t.0,
+            Format::Jsonl,
+            ExportOptions {
+                critical_only: false,
+                after_seq: Some(3),
+            },
+        )
+        .expect("export");
+        assert_eq!(
+            lines(&after.text)
+                .iter()
+                .map(|r| r["seq"].as_u64().unwrap_or(0))
+                .collect::<Vec<_>>(),
+            [4, 5]
+        );
         assert_eq!(after.findings, 0);
     }
 
@@ -507,18 +628,47 @@ mod tests {
         let events = lines(&out.text);
         let classes: Vec<(u64, u64)> = events
             .iter()
-            .map(|e| (e["class_uid"].as_u64().unwrap_or(0), e["activity_id"].as_u64().unwrap_or(0)))
+            .map(|e| {
+                (
+                    e["class_uid"].as_u64().unwrap_or(0),
+                    e["activity_id"].as_u64().unwrap_or(0),
+                )
+            })
             .collect();
-        assert_eq!(classes, [(6003, 99), (1007, 1), (4001, 1), (1001, 14), (1001, 5), (6003, 99)]);
+        assert_eq!(
+            classes,
+            [
+                (6003, 99),
+                (1007, 1),
+                (4001, 1),
+                (1001, 14),
+                (1001, 5),
+                (6003, 99)
+            ]
+        );
 
         for e in &events {
-            for field in ["class_uid", "category_uid", "activity_id", "type_uid", "time", "severity_id", "metadata"] {
+            for field in [
+                "class_uid",
+                "category_uid",
+                "activity_id",
+                "type_uid",
+                "time",
+                "severity_id",
+                "metadata",
+            ] {
                 assert!(e.get(field).is_some(), "missing {field} in {e}");
             }
             assert_eq!(e["metadata"]["version"], OCSF_VERSION);
             assert_eq!(e["metadata"]["product"]["name"], "sogar");
             assert_eq!(e["device"]["os"]["type_id"], 300);
-            assert_eq!(e["type_uid"].as_u64(), Some(e["class_uid"].as_u64().unwrap_or(0) * 100 + e["activity_id"].as_u64().unwrap_or(0)));
+            assert_eq!(
+                e["type_uid"].as_u64(),
+                Some(
+                    e["class_uid"].as_u64().unwrap_or(0) * 100
+                        + e["activity_id"].as_u64().unwrap_or(0)
+                )
+            );
         }
 
         let launch = &events[1];
@@ -529,14 +679,22 @@ mod tests {
         assert_eq!(launch["process"]["working_directory"], "/Users/dev/app");
         assert_eq!(launch["actor"]["app_name"], "claude");
         assert_eq!(launch["actor"]["process"]["file"]["path"], "/bin/sh");
-        assert_eq!(launch["unmapped"]["sogar"]["mcp"]["tool_name"], "search_docs");
-        assert!(launch["unmapped"]["sogar"]["policy_violation"].as_str().is_some_and(|v| v.contains("drift")));
+        assert_eq!(
+            launch["unmapped"]["sogar"]["mcp"]["tool_name"],
+            "search_docs"
+        );
+        assert!(launch["unmapped"]["sogar"]["policy_violation"]
+            .as_str()
+            .is_some_and(|v| v.contains("drift")));
 
         let net = &events[2];
         assert_eq!(net["dst_endpoint"], json!({"ip": "1.1.1.1", "port": 443}));
         assert_eq!(net["src_endpoint"]["port"], 50000);
         assert_eq!(net["connection_info"]["protocol_name"], "tcp");
-        assert_eq!(net["metadata"]["uid"], launch["metadata"]["uid"], "socket events point at their record");
+        assert_eq!(
+            net["metadata"]["uid"], launch["metadata"]["uid"],
+            "socket events point at their record"
+        );
 
         assert_eq!(events[3]["file"]["parent_folder"], "/Users/dev/.ssh");
         assert_eq!(events[4]["file_result"]["path"], "/Users/dev/b");
@@ -555,18 +713,34 @@ mod tests {
         assert_eq!(log["version"], "2.1.0");
         let run = &log["runs"][0];
         assert_eq!(run["tool"]["driver"]["name"], "sogar");
-        assert_eq!(run["tool"]["driver"]["rules"].as_array().map(Vec::len), Some(3));
+        assert_eq!(
+            run["tool"]["driver"]["rules"].as_array().map(Vec::len),
+            Some(3)
+        );
         let results = run["results"].as_array().expect("results");
         assert_eq!(results.len(), 2);
-        assert_eq!((results[0]["ruleId"].as_str(), results[0]["ruleIndex"].as_u64()), (Some("SOGAR002"), Some(1)));
+        assert_eq!(
+            (
+                results[0]["ruleId"].as_str(),
+                results[0]["ruleIndex"].as_u64()
+            ),
+            (Some("SOGAR002"), Some(1))
+        );
         assert_eq!(results[1]["ruleId"], "SOGAR001");
         assert_eq!(results[1]["level"], "error");
         assert_eq!(
             results[1]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"],
             "file:///Users/dev/.ssh/known%20hosts"
         );
-        assert_eq!(results[1]["partialFingerprints"]["sogarRecordHash/v1"].as_str().map(str::len), Some(64));
-        assert!(results[1]["message"]["text"].as_str().is_some_and(|m| m.contains("compromised-docs-mcp::search_docs")));
+        assert_eq!(
+            results[1]["partialFingerprints"]["sogarRecordHash/v1"]
+                .as_str()
+                .map(str::len),
+            Some(64)
+        );
+        assert!(results[1]["message"]["text"]
+            .as_str()
+            .is_some_and(|m| m.contains("compromised-docs-mcp::search_docs")));
         assert_eq!(run["properties"]["integrity"]["status"], "valid");
 
         // Break the chain: a SOGAR003 finding is added and the export says so.
@@ -576,12 +750,18 @@ mod tests {
         assert!(out.tampered);
         let log: Value = serde_json::from_str(&out.text).expect("sarif json");
         let results = log["runs"][0]["results"].as_array().expect("results");
-        assert_eq!(results.last().and_then(|r| r["ruleId"].as_str()), Some("SOGAR003"));
+        assert_eq!(
+            results.last().and_then(|r| r["ruleId"].as_str()),
+            Some("SOGAR003")
+        );
         assert_eq!(log["runs"][0]["properties"]["integrity"]["line"], 3);
     }
 
     #[test]
     fn file_uris_are_percent_encoded() {
-        assert_eq!(file_uri("/Users/dev/My Docs/ä.txt"), "file:///Users/dev/My%20Docs/%C3%A4.txt");
+        assert_eq!(
+            file_uri("/Users/dev/My Docs/ä.txt"),
+            "file:///Users/dev/My%20Docs/%C3%A4.txt"
+        );
     }
 }

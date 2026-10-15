@@ -38,7 +38,8 @@ impl Alerter {
     }
 
     pub fn with_timeout(url: &str, timeout: Duration) -> Result<Self> {
-        let url = reqwest::Url::parse(url).with_context(|| format!("invalid --webhook-url {url:?}"))?;
+        let url =
+            reqwest::Url::parse(url).with_context(|| format!("invalid --webhook-url {url:?}"))?;
         if !matches!(url.scheme(), "https" | "http") {
             bail!("--webhook-url must be an http(s) URL");
         }
@@ -71,7 +72,12 @@ impl Alerter {
     }
 
     /// Fire-and-forget POST of one critical record. Returns immediately.
-    pub fn notify(&self, seq: u64, hash: &str, entry: &Value) -> Option<tokio::task::JoinHandle<()>> {
+    pub fn notify(
+        &self,
+        seq: u64,
+        hash: &str,
+        entry: &Value,
+    ) -> Option<tokio::task::JoinHandle<()>> {
         let Ok(permit) = self.permits.clone().try_acquire_owned() else {
             self.dropped.fetch_add(1, Ordering::Relaxed);
             return None;
@@ -115,7 +121,10 @@ pub fn describe(entry: &Value) -> String {
         Some("ai_agent") => format!(
             "{} (root {})",
             str_at(entry, &["actor", "agent_name"]).unwrap_or("?"),
-            entry.pointer("/actor/root_pid").and_then(Value::as_u64).unwrap_or(0)
+            entry
+                .pointer("/actor/root_pid")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
         ),
         Some("human") => "human".to_owned(),
         _ => "unknown".to_owned(),
@@ -129,12 +138,19 @@ pub fn describe(entry: &Value) -> String {
         ));
     }
     let event = str_at(entry, &["event"]).unwrap_or("?");
-    if let (Some(exe), Some(pid)) = (str_at(entry, &["executable"]), entry.get("pid").and_then(Value::as_u64)) {
+    if let (Some(exe), Some(pid)) = (
+        str_at(entry, &["executable"]),
+        entry.get("pid").and_then(Value::as_u64),
+    ) {
         text.push_str(&format!(" → {}[{pid}]", basename(exe)));
     }
     text.push_str(&format!(" {event}"));
     let target = match entry.get("args").and_then(Value::as_array) {
-        Some(args) => args.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "),
+        Some(args) => args
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(" "),
         None => str_at(entry, &["path"]).unwrap_or("").to_owned(),
     };
     if !target.is_empty() {
@@ -193,18 +209,33 @@ mod tests {
              executed new binary /bin/cat"
         );
         assert_eq!(body["content"], body["text"]);
-        assert_eq!((body["seq"].as_u64(), body["hash"].as_str()), (Some(42), Some("abc123")));
+        assert_eq!(
+            (body["seq"].as_u64(), body["hash"].as_str()),
+            (Some(42), Some("abc123"))
+        );
         assert_eq!(body["record"]["path"], "/Users/dev/.ssh/known_hosts");
 
         let long = json!({"event": "exec", "args": ["x".repeat(5000)]});
-        assert!(payload(1, "h", &long)["content"].as_str().expect("content").chars().count() <= MAX_CONTENT_CHARS + 1);
+        assert!(
+            payload(1, "h", &long)["content"]
+                .as_str()
+                .expect("content")
+                .chars()
+                .count()
+                <= MAX_CONTENT_CHARS + 1
+        );
     }
 
     #[test]
     fn rejects_non_http_urls() {
         assert!(Alerter::new("file:///etc/passwd").is_err());
         assert!(Alerter::new("not a url").is_err());
-        assert_eq!(Alerter::new("https://hooks.slack.com/services/T0/B0/secret").expect("ok").host(), "hooks.slack.com");
+        assert_eq!(
+            Alerter::new("https://hooks.slack.com/services/T0/B0/secret")
+                .expect("ok")
+                .host(),
+            "hooks.slack.com"
+        );
     }
 
     /// Minimal HTTP endpoint: returns the first request's body.
@@ -222,11 +253,17 @@ mod tests {
                 if let Some((head, body)) = text.split_once("\r\n\r\n") {
                     let len: usize = head
                         .lines()
-                        .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap_or(0)))
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse().unwrap_or(0))
+                        })
                         .unwrap_or(0);
                     if body.len() >= len {
                         if respond {
-                            let _ = stream.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok").await;
+                            let _ = stream
+                                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok")
+                                .await;
                         } else {
                             tokio::time::sleep(Duration::from_secs(5)).await;
                         }
@@ -245,7 +282,9 @@ mod tests {
     async fn posts_critical_records_to_the_webhook() {
         let (url, server) = one_shot_server(true).await;
         let alerter = Alerter::new(&url).expect("alerter");
-        let task = alerter.notify(9, "deadbeef", &critical_entry()).expect("sent");
+        let task = alerter
+            .notify(9, "deadbeef", &critical_entry())
+            .expect("sent");
         task.await.expect("join");
         let body: Value = serde_json::from_str(&server.await.expect("server")).expect("json body");
         assert_eq!(body["seq"], 9);
@@ -259,7 +298,10 @@ mod tests {
         let alerter = Alerter::with_timeout(&url, Duration::from_millis(300)).expect("alerter");
         let started = std::time::Instant::now();
         let task = alerter.notify(1, "h", &critical_entry()).expect("sent");
-        assert!(started.elapsed() < Duration::from_millis(50), "notify must not wait for the endpoint");
+        assert!(
+            started.elapsed() < Duration::from_millis(50),
+            "notify must not wait for the endpoint"
+        );
         task.await.expect("join");
         assert!(started.elapsed() < Duration::from_secs(2));
         assert_eq!(alerter.failures(), 1);

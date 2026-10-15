@@ -111,10 +111,13 @@ pub fn bind_server(path: &Path) -> Result<UnixListener> {
 
     // /tmp is sticky, so once bound the path can only be replaced by us. Still,
     // refuse to chmod anything that is not the socket we just created.
-    let meta = fs::symlink_metadata(path)
-        .with_context(|| format!("failed to stat {}", path.display()))?;
+    let meta =
+        fs::symlink_metadata(path).with_context(|| format!("failed to stat {}", path.display()))?;
     if !meta.file_type().is_socket() {
-        bail!("{} is not a socket after bind; refusing to continue", path.display());
+        bail!(
+            "{} is not a socket after bind; refusing to continue",
+            path.display()
+        );
     }
     fs::set_permissions(path, Permissions::from_mode(0o666))
         .with_context(|| format!("failed to set 0666 permissions on {}", path.display()))?;
@@ -184,7 +187,10 @@ async fn handle_connection(stream: UnixStream, tx: mpsc::Sender<Envelope>) -> Re
     loop {
         buf.clear();
         let limit = MAX_MESSAGE_BYTES as u64 + 1;
-        let n = (&mut reader).take(limit).read_until(b'\n', &mut buf).await?;
+        let n = (&mut reader)
+            .take(limit)
+            .read_until(b'\n', &mut buf)
+            .await?;
         if n == 0 {
             return Ok(());
         }
@@ -326,7 +332,11 @@ pub(crate) fn test_socket_path(tag: &str) -> PathBuf {
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     // sun_path is limited to 104 bytes on macOS; TMPDIR can be longer than that.
     let dir = std::env::temp_dir();
-    let dir = if dir.as_os_str().len() > 60 { PathBuf::from("/tmp") } else { dir };
+    let dir = if dir.as_os_str().len() > 60 {
+        PathBuf::from("/tmp")
+    } else {
+        dir
+    };
     dir.join(format!("sogar-{tag}-{}-{n}.sock", std::process::id()))
 }
 
@@ -357,7 +367,12 @@ mod tests {
         let text = r#"{"type":"McpCallEnd","child_pid":11,"rpc_id":"a","timestamp":"2026-10-15T01:15:22.5Z"}"#;
         let msg: IpcMessage = serde_json::from_str(text).expect("deserialize");
         match msg {
-            IpcMessage::McpCallEnd { is_error, cancelled, rpc_id, .. } => {
+            IpcMessage::McpCallEnd {
+                is_error,
+                cancelled,
+                rpc_id,
+                ..
+            } => {
                 assert!(!is_error && !cancelled);
                 assert_eq!(rpc_key(&rpc_id), r#""a""#);
             }

@@ -8,8 +8,8 @@
 mod alert;
 mod config_wrap;
 mod doctor;
-mod export;
 mod eslogger;
+mod export;
 mod ipc;
 mod ledger;
 mod lineage;
@@ -36,7 +36,9 @@ use tokio::sync::mpsc;
 use crate::eslogger::{EventKind, KernelEvent, Noise, Severity};
 use crate::ipc::Envelope;
 use crate::ledger::{Ledger, Verification};
-use crate::lineage::{basename, Actor, AgentMatcher, Attribution, IpcEffect, LineageTracker, McpToolCall};
+use crate::lineage::{
+    basename, Actor, AgentMatcher, Attribution, IpcEffect, LineageTracker, McpToolCall,
+};
 use crate::net_inspect::SocketConnection;
 use crate::policy::{Lockfile, Observation};
 
@@ -51,7 +53,11 @@ const NET_POLL_DELAY: Duration = Duration::from_millis(40);
 const DEFERRED_DRAIN: Duration = Duration::from_millis(250);
 
 #[derive(Parser)]
-#[command(name = "sogar", version, about = "Kernel-to-MCP flight recorder for AI agents on macOS")]
+#[command(
+    name = "sogar",
+    version,
+    about = "Kernel-to-MCP flight recorder for AI agents on macOS"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -345,7 +351,10 @@ fn run_export(args: ExportArgs) -> ExitCode {
     match export::export(&path, args.format, opts) {
         Ok(out) => {
             let mut stdout = std::io::stdout().lock();
-            if let Err(e) = stdout.write_all(out.text.as_bytes()).and_then(|()| stdout.flush()) {
+            if let Err(e) = stdout
+                .write_all(out.text.as_bytes())
+                .and_then(|()| stdout.flush())
+            {
                 eprintln!("sogar export: failed to write output: {e}");
                 return ExitCode::from(2);
             }
@@ -382,17 +391,34 @@ fn run_lock(args: LockArgs) -> ExitCode {
                 outcome.stats.observations,
                 outcome.stats.excluded
             );
-            let width = outcome.lockfile.servers.keys().map(|k| k.chars().count()).max().unwrap_or(6).max(6);
-            println!("\n{}", format!("{:<width$}  EXECUTABLES  PATH PREFIXES  NETWORK", "SERVER").bold());
+            let width = outcome
+                .lockfile
+                .servers
+                .keys()
+                .map(|k| k.chars().count())
+                .max()
+                .unwrap_or(6)
+                .max(6);
+            println!(
+                "\n{}",
+                format!("{:<width$}  EXECUTABLES  PATH PREFIXES  NETWORK", "SERVER").bold()
+            );
             for (name, server) in &outcome.lockfile.servers {
                 println!(
                     "{name:<width$}  {:>11}  {:>13}  {}",
                     server.allowed_executables.len(),
                     server.allowed_path_prefixes.len(),
-                    if server.allow_network { "allowed".yellow() } else { "denied".green() }
+                    if server.allow_network {
+                        "allowed".yellow()
+                    } else {
+                        "denied".green()
+                    }
                 );
             }
-            println!("\nWrote {}. Review it, then `sudo sogar watch` enforces it.", out.display());
+            println!(
+                "\nWrote {}. Review it, then `sudo sogar watch` enforces it.",
+                out.display()
+            );
             ExitCode::SUCCESS
         }
         Err(e) => {
@@ -469,9 +495,15 @@ struct AuditEntry {
 impl AuditEntry {
     fn new(ev: KernelEvent, attribution: Attribution, severity: Severity) -> Self {
         let event = ev.kind.name();
-        let (mut path, mut destination, mut access, mut args, mut cwd) = (None, None, None, None, None);
+        let (mut path, mut destination, mut access, mut args, mut cwd) =
+            (None, None, None, None, None);
         match ev.kind {
-            EventKind::Exec { target_path, args: argv, cwd: dir, .. } => {
+            EventKind::Exec {
+                target_path,
+                args: argv,
+                cwd: dir,
+                ..
+            } => {
                 path = Some(target_path);
                 args = Some(argv.iter().map(|a| mcp_proxy::redact_secrets(a)).collect());
                 cwd = dir;
@@ -484,7 +516,10 @@ impl AuditEntry {
             | EventKind::Create { path: p }
             | EventKind::Unlink { path: p }
             | EventKind::UipcConnect { path: p } => path = Some(p),
-            EventKind::Rename { source, destination: d } => {
+            EventKind::Rename {
+                source,
+                destination: d,
+            } => {
                 path = Some(source);
                 destination = Some(d);
             }
@@ -523,11 +558,20 @@ impl AuditEntry {
 
     /// Checks an MCP-attributed entry against the lockfile; drift makes it critical.
     fn enforce(&mut self, lockfile: &Lockfile) {
-        let Some(server) = self.server_name() else { return };
+        let Some(server) = self.server_name() else {
+            return;
+        };
         let (exec_target, paths) = if self.event == "exec" {
             (self.path.as_deref(), Vec::new())
         } else {
-            (None, self.path.iter().chain(&self.destination).map(String::as_str).collect())
+            (
+                None,
+                self.path
+                    .iter()
+                    .chain(&self.destination)
+                    .map(String::as_str)
+                    .collect(),
+            )
         };
         let observation = Observation {
             server,
@@ -548,7 +592,11 @@ impl AuditEntry {
     }
 
     fn is_network_exec(&self) -> bool {
-        self.event == "exec" && self.path.as_deref().is_some_and(net_inspect::is_network_binary)
+        self.event == "exec"
+            && self
+                .path
+                .as_deref()
+                .is_some_and(net_inspect::is_network_binary)
     }
 }
 
@@ -637,7 +685,10 @@ impl Recorder {
             let tx = self.deferred_tx.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(NET_POLL_DELAY).await;
-                net_inspect::merge(&mut entry.network_connections, net_inspect::inspect_pid(entry.pid));
+                net_inspect::merge(
+                    &mut entry.network_connections,
+                    net_inspect::inspect_pid(entry.pid),
+                );
                 if let Some(lockfile) = &lockfile {
                     entry.enforce(lockfile);
                 }
@@ -683,7 +734,11 @@ impl Recorder {
             }
         };
         let (event, call, is_error, cancelled) = match effect {
-            IpcEffect::ServerStarted { server_name, wrapper_pid, child_pid } => {
+            IpcEffect::ServerStarted {
+                server_name,
+                wrapper_pid,
+                child_pid,
+            } => {
                 let actor = self.tracker.actor_of(child_pid);
                 status(&format!(
                     "MCP server {} started (pid {child_pid}, wrapper {wrapper_pid}) for {}",
@@ -692,15 +747,23 @@ impl Recorder {
                 ));
                 return Ok(());
             }
-            IpcEffect::ServerExited { server_name, child_pid } => {
-                status(&format!("MCP server {} exited (pid {child_pid})", server_name.cyan()));
+            IpcEffect::ServerExited {
+                server_name,
+                child_pid,
+            } => {
+                status(&format!(
+                    "MCP server {} exited (pid {child_pid})",
+                    server_name.cyan()
+                ));
                 return Ok(());
             }
             IpcEffect::Ignored => return Ok(()),
             IpcEffect::CallStarted(call) => ("mcp_call_start", call, None, false),
-            IpcEffect::CallEnded { call, is_error, cancelled } => {
-                ("mcp_call_end", call, Some(is_error), cancelled)
-            }
+            IpcEffect::CallEnded {
+                call,
+                is_error,
+                cancelled,
+            } => ("mcp_call_end", call, Some(is_error), cancelled),
         };
         let severity = match call.arguments_summary.as_deref().map(eslogger::sensitivity) {
             Some(s) if s != eslogger::Sensitivity::None => Severity::Critical,
@@ -735,7 +798,9 @@ impl Recorder {
                 self.gap_events += gap;
                 self.gap_warnings += 1;
                 if self.gap_warnings <= MAX_GAP_WARNINGS {
-                    warn(&format!("eslogger sequence gap: {gap} events possibly dropped"));
+                    warn(&format!(
+                        "eslogger sequence gap: {gap} events possibly dropped"
+                    ));
                 }
             }
         }
@@ -753,7 +818,10 @@ async fn run_watch(args: WatchArgs) -> Result<()> {
         );
     }
     if !Path::new(eslogger::ESLOGGER_PATH).exists() {
-        bail!("{} not found; sogar requires macOS 13 or later", eslogger::ESLOGGER_PATH);
+        bail!(
+            "{} not found; sogar requires macOS 13 or later",
+            eslogger::ESLOGGER_PATH
+        );
     }
     if !std::io::stdout().is_terminal() {
         colored::control::set_override(false);
@@ -768,7 +836,11 @@ async fn run_watch(args: WatchArgs) -> Result<()> {
     ledger.share_with_invoking_user()?;
 
     let lockfile = load_lockfile(args.lockfile.as_deref())?;
-    let alerter = args.webhook_url.as_deref().map(alert::Alerter::new).transpose()?;
+    let alerter = args
+        .webhook_url
+        .as_deref()
+        .map(alert::Alerter::new)
+        .transpose()?;
 
     let listener = ipc::bind_server(&args.socket)?;
     let _socket_guard = ipc::SocketGuard::new(&args.socket);
@@ -789,7 +861,9 @@ async fn run_watch(args: WatchArgs) -> Result<()> {
                 report.tracked
             ));
         }
-        Err(e) => warn(&format!("initial process scan failed, continuing without it: {e:#}")),
+        Err(e) => warn(&format!(
+            "initial process scan failed, continuing without it: {e:#}"
+        )),
     }
 
     let events = eslogger::select_events().await;
@@ -808,7 +882,8 @@ async fn run_watch(args: WatchArgs) -> Result<()> {
     status(&format!("eslogger events: {}", events.join(" ")));
 
     let mut sigint = signal(SignalKind::interrupt()).context("failed to install SIGINT handler")?;
-    let mut sigterm = signal(SignalKind::terminate()).context("failed to install SIGTERM handler")?;
+    let mut sigterm =
+        signal(SignalKind::terminate()).context("failed to install SIGTERM handler")?;
     let mut sighup = signal(SignalKind::hangup()).context("failed to install SIGHUP handler")?;
     let mut maintenance = tokio::time::interval(MAINTENANCE_INTERVAL);
     maintenance.tick().await;
@@ -943,7 +1018,10 @@ fn severity_tag(s: Severity) -> ColoredString {
 
 fn actor_tag(actor: &Actor) -> ColoredString {
     match actor {
-        Actor::AiAgent { agent_name, root_pid } => format!("AI:{agent_name}({root_pid})").magenta().bold(),
+        Actor::AiAgent {
+            agent_name,
+            root_pid,
+        } => format!("AI:{agent_name}({root_pid})").magenta().bold(),
         Actor::Human => "HUMAN".green(),
     }
 }
@@ -953,7 +1031,13 @@ fn rpc_id_text(id: &Value) -> String {
 }
 
 fn mcp_tag(call: &McpToolCall) -> ColoredString {
-    format!("[mcp {}::{} #{}]", call.server_name, call.tool_name, rpc_id_text(&call.rpc_id)).cyan()
+    format!(
+        "[mcp {}::{} #{}]",
+        call.server_name,
+        call.tool_name,
+        rpc_id_text(&call.rpc_id)
+    )
+    .cyan()
 }
 
 fn render_audit(e: &AuditEntry) {
@@ -1003,7 +1087,12 @@ fn render_audit(e: &AuditEntry) {
 fn socket_tag(conn: &SocketConnection) -> ColoredString {
     let remote = conn.remote.as_deref().unwrap_or("*");
     let state = conn.state.map(|s| format!(" {s}")).unwrap_or_default();
-    format!("⇄ {} {} → {remote}{state}", conn.protocol.as_str(), conn.local).blue()
+    format!(
+        "⇄ {} {} → {remote}{state}",
+        conn.protocol.as_str(),
+        conn.local
+    )
+    .blue()
 }
 
 fn render_mcp(e: &McpEntry) {
@@ -1044,7 +1133,11 @@ mod tests {
         };
         Lockfile {
             version: policy::LOCKFILE_VERSION,
-            source: LockSource { ledger: String::new(), records: 0, head_hash: String::new() },
+            source: LockSource {
+                ledger: String::new(),
+                records: 0,
+                head_hash: String::new(),
+            },
             servers: BTreeMap::from([("docs".to_string(), docs)]),
         }
     }
@@ -1071,7 +1164,10 @@ mod tests {
             arguments_summary: None,
         };
         let attribution = Attribution {
-            actor: Actor::AiAgent { agent_name: "claude".into(), root_pid: 100 },
+            actor: Actor::AiAgent {
+                agent_name: "claude".into(),
+                root_pid: 100,
+            },
             mcp: in_call.then_some(call),
             mcp_server: mcp_server.map(str::to_owned),
         };
@@ -1079,16 +1175,31 @@ mod tests {
     }
 
     fn exec(path: &str) -> EventKind {
-        EventKind::Exec { target_path: path.into(), target_pid: 112, args: vec![], cwd: None }
+        EventKind::Exec {
+            target_path: path.into(),
+            target_pid: 112,
+            args: vec![],
+            cwd: None,
+        }
     }
 
     #[test]
     fn baseline_behaviour_stays_informational() {
         let mut e = entry(exec("/usr/bin/git"), Some("docs"), true);
         e.enforce(&lockfile());
-        assert_eq!((e.severity, e.policy_violation.as_deref()), (Severity::Info, None));
+        assert_eq!(
+            (e.severity, e.policy_violation.as_deref()),
+            (Severity::Info, None)
+        );
 
-        let mut e = entry(EventKind::Open { path: "/Users/dev/app/docs/a.md".into(), fflag: 1 }, Some("docs"), false);
+        let mut e = entry(
+            EventKind::Open {
+                path: "/Users/dev/app/docs/a.md".into(),
+                fflag: 1,
+            },
+            Some("docs"),
+            false,
+        );
         e.enforce(&lockfile());
         assert_eq!(e.policy_violation, None);
         // Between tool calls the owning server is recorded explicitly.
@@ -1117,7 +1228,10 @@ mod tests {
             state: Some("ESTABLISHED"),
         });
         e.enforce(&lockfile());
-        assert!(e.policy_violation.as_deref().is_some_and(|v| v.contains("1.1.1.1:443")));
+        assert!(e
+            .policy_violation
+            .as_deref()
+            .is_some_and(|v| v.contains("1.1.1.1:443")));
 
         let serialized = serde_json::to_value(&e).expect("json");
         assert_eq!(serialized["severity"], "critical");
@@ -1128,8 +1242,13 @@ mod tests {
     fn events_outside_mcp_servers_are_not_policed() {
         let mut e = entry(exec("/bin/bash"), None, false);
         e.enforce(&lockfile());
-        assert_eq!((e.severity, e.policy_violation.as_deref()), (Severity::Info, None));
+        assert_eq!(
+            (e.severity, e.policy_violation.as_deref()),
+            (Severity::Info, None)
+        );
         let serialized = serde_json::to_value(&e).expect("json");
-        assert!(serialized.get("policy_violation").is_none() && serialized.get("mcp_server").is_none());
+        assert!(
+            serialized.get("policy_violation").is_none() && serialized.get("mcp_server").is_none()
+        );
     }
 }

@@ -79,7 +79,10 @@ pub struct ServerChange {
 fn string_args(server: &Map<String, Value>) -> Option<Vec<String>> {
     match server.get("args") {
         None | Some(Value::Null) => Some(Vec::new()),
-        Some(Value::Array(items)) => items.iter().map(|a| a.as_str().map(str::to_owned)).collect(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|a| a.as_str().map(str::to_owned))
+            .collect(),
         Some(_) => None,
     }
 }
@@ -102,7 +105,11 @@ fn command_line(server: &Map<String, Value>) -> String {
 }
 
 fn wrap_server(server: &mut Map<String, Value>, name: &str, sogar: &str) -> Outcome {
-    let Some(command) = server.get("command").and_then(Value::as_str).map(str::to_owned) else {
+    let Some(command) = server
+        .get("command")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+    else {
         return Outcome::Skipped(if server.contains_key("url") {
             "remote server (url)".into()
         } else {
@@ -238,7 +245,8 @@ fn backup_path(path: &Path) -> PathBuf {
 /// Replaces the file's contents atomically, keeping its permissions. A
 /// symlinked config (e.g. from a dotfiles repo) is updated at its target.
 fn write_atomically(path: &Path, contents: &str) -> Result<()> {
-    let target = fs::canonicalize(path).with_context(|| format!("failed to resolve {}", path.display()))?;
+    let target =
+        fs::canonicalize(path).with_context(|| format!("failed to resolve {}", path.display()))?;
     let permissions = fs::metadata(&target)
         .with_context(|| format!("failed to stat {}", target.display()))?
         .permissions();
@@ -344,12 +352,20 @@ pub fn render_summary(reports: &[FileReport], home: &Path, mode: Mode, dry_run: 
             ));
         }
         if report.error.is_none() && report.changes.is_empty() {
-            rows.push(row("-", Outcome::Skipped("no stdio MCP servers".into()), String::new()));
+            rows.push(row(
+                "-",
+                Outcome::Skipped("no stdio MCP servers".into()),
+                String::new(),
+            ));
         }
     }
 
     let width = |cell: fn(&Row) -> usize, header: &str| {
-        rows.iter().map(cell).chain([header.chars().count()]).max().unwrap_or(0)
+        rows.iter()
+            .map(cell)
+            .chain([header.chars().count()])
+            .max()
+            .unwrap_or(0)
     };
     let w_file = width(|r| r.file.chars().count(), "FILE");
     let w_server = width(|r| r.server.chars().count(), "SERVER");
@@ -358,11 +374,23 @@ pub fn render_summary(reports: &[FileReport], home: &Path, mode: Mode, dry_run: 
     let mut out = String::new();
     out.push_str(&format!(
         "{}\n",
-        format!("{:<w_file$}  {:<w_server$}  {:<w_result$}  COMMAND", "FILE", "SERVER", "RESULT").bold()
+        format!(
+            "{:<w_file$}  {:<w_server$}  {:<w_result$}  COMMAND",
+            "FILE", "SERVER", "RESULT"
+        )
+        .bold()
     ));
-    for Row { file, server, outcome, command } in &rows {
+    for Row {
+        file,
+        server,
+        outcome,
+        command,
+    } in &rows
+    {
         let result = outcome.paint(format!("{:<w_result$}", outcome.label()));
-        out.push_str(&format!("{file:<w_file$}  {server:<w_server$}  {result}  {command}\n"));
+        out.push_str(&format!(
+            "{file:<w_file$}  {server:<w_server$}  {result}  {command}\n"
+        ));
     }
 
     let changed = rows.iter().filter(|r| r.outcome.changed()).count();
@@ -372,12 +400,17 @@ pub fn render_summary(reports: &[FileReport], home: &Path, mode: Mode, dry_run: 
     };
     out.push('\n');
     if dry_run {
-        out.push_str(&format!("Dry run: {changed} server(s) would be {verb}; no files were changed.\n"));
+        out.push_str(&format!(
+            "Dry run: {changed} server(s) would be {verb}; no files were changed.\n"
+        ));
         return out;
     }
     for report in reports {
         if let Some(backup) = &report.backup {
-            out.push_str(&format!("Backed up original to {}\n", display_path(backup, home)));
+            out.push_str(&format!(
+                "Backed up original to {}\n",
+                display_path(backup, home)
+            ));
         }
     }
     let files = reports.iter().filter(|r| r.written).count();
@@ -465,7 +498,10 @@ mod tests {
     fn wraps_stdio_servers_and_preserves_everything_else() {
         let mut doc = sample();
         let changes = rewrite_document(&mut doc, Mode::Wrap, SOGAR);
-        let outcomes: Vec<(&str, &Outcome)> = changes.iter().map(|c| (c.server.as_str(), &c.outcome)).collect();
+        let outcomes: Vec<(&str, &Outcome)> = changes
+            .iter()
+            .map(|c| (c.server.as_str(), &c.outcome))
+            .collect();
         assert_eq!(
             outcomes,
             vec![
@@ -481,14 +517,30 @@ mod tests {
                    "args": ["mcp-wrap", "--name", "github", "--", "npx", "-y", "@modelcontextprotocol/server-github"],
                    "env": {"GITHUB_TOKEN": "x"}})
         );
-        assert_eq!(doc["mcpServers"]["bare"]["args"], json!(["mcp-wrap", "--name", "bare", "--", "/opt/mcp/server"]));
-        assert_eq!(doc["projects"]["/Users/dev/app"]["mcpServers"]["db"]["command"], SOGAR);
-        assert_eq!(doc["mcpServers"]["remote"], sample()["mcpServers"]["remote"]);
+        assert_eq!(
+            doc["mcpServers"]["bare"]["args"],
+            json!(["mcp-wrap", "--name", "bare", "--", "/opt/mcp/server"])
+        );
+        assert_eq!(
+            doc["projects"]["/Users/dev/app"]["mcpServers"]["db"]["command"],
+            SOGAR
+        );
+        assert_eq!(
+            doc["mcpServers"]["remote"],
+            sample()["mcpServers"]["remote"]
+        );
         assert_eq!(doc["numStartups"], 12);
-        assert_eq!(changes[0].command, "sogar mcp-wrap --name github -- npx -y @modelcontextprotocol/server-github");
+        assert_eq!(
+            changes[0].command,
+            "sogar mcp-wrap --name github -- npx -y @modelcontextprotocol/server-github"
+        );
 
         // Field order inside entries is untouched.
-        let keys: Vec<&String> = doc["mcpServers"]["github"].as_object().expect("object").keys().collect();
+        let keys: Vec<&String> = doc["mcpServers"]["github"]
+            .as_object()
+            .expect("object")
+            .keys()
+            .collect();
         assert_eq!(keys, ["type", "command", "args", "env"]);
 
         // Idempotent.
@@ -503,10 +555,16 @@ mod tests {
         rewrite_document(&mut doc, Mode::Wrap, SOGAR);
         let changes = rewrite_document(&mut doc, Mode::Unwrap, SOGAR);
         assert_eq!(changes[0].outcome, Outcome::Unwrapped);
-        assert_eq!(doc["mcpServers"]["github"], sample()["mcpServers"]["github"]);
+        assert_eq!(
+            doc["mcpServers"]["github"],
+            sample()["mcpServers"]["github"]
+        );
         assert_eq!(doc["projects"], sample()["projects"]);
         // An entry that had no `args` comes back with an empty list.
-        assert_eq!(doc["mcpServers"]["bare"], json!({"command": "/opt/mcp/server", "args": []}));
+        assert_eq!(
+            doc["mcpServers"]["bare"],
+            json!({"command": "/opt/mcp/server", "args": []})
+        );
         assert_eq!(
             rewrite_document(&mut doc, Mode::Unwrap, SOGAR)[0].outcome,
             Outcome::NotWrapped
@@ -519,7 +577,10 @@ mod tests {
         rewrite_document(&mut doc, Mode::Wrap, SOGAR);
         let github = doc["mcpServers"]["github"].as_object_mut().expect("object");
         // The user appended an argument, changed env, and pointed the wrapper at another socket.
-        let args = github.get_mut("args").and_then(Value::as_array_mut).expect("args");
+        let args = github
+            .get_mut("args")
+            .and_then(Value::as_array_mut)
+            .expect("args");
         args.push(json!("--read-only"));
         args.insert(3, json!("--socket"));
         args.insert(4, json!("/tmp/other.sock"));
@@ -542,15 +603,24 @@ mod tests {
             "weird": {"command": "x", "args": "not-a-list"},
             "scalar": 5
         }});
-        let wrap: Vec<Outcome> = rewrite_document(&mut doc.clone(), Mode::Wrap, SOGAR).into_iter().map(|c| c.outcome).collect();
+        let wrap: Vec<Outcome> = rewrite_document(&mut doc.clone(), Mode::Wrap, SOGAR)
+            .into_iter()
+            .map(|c| c.outcome)
+            .collect();
         assert_eq!(wrap[0], Outcome::AlreadyWrapped);
         assert!(matches!(&wrap[2], Outcome::Skipped(why) if why.contains("args")));
         assert!(matches!(&wrap[3], Outcome::Skipped(_)));
 
-        let unwrap: Vec<Outcome> = rewrite_document(&mut doc, Mode::Unwrap, SOGAR).into_iter().map(|c| c.outcome).collect();
+        let unwrap: Vec<Outcome> = rewrite_document(&mut doc, Mode::Unwrap, SOGAR)
+            .into_iter()
+            .map(|c| c.outcome)
+            .collect();
         assert_eq!(unwrap[0], Outcome::Unwrapped);
         assert!(matches!(&unwrap[1], Outcome::Skipped(why) if why.contains("--")));
-        assert_eq!(doc["mcpServers"]["moved"], json!({"command": "node", "args": ["s.js"]}));
+        assert_eq!(
+            doc["mcpServers"]["moved"],
+            json!({"command": "node", "args": ["s.js"]})
+        );
     }
 
     struct TempDir(PathBuf);
@@ -577,7 +647,10 @@ mod tests {
 
         let dir = TempDir::new();
         let path = dir.0.join(".mcp.json");
-        let original = format!("{}\n", serde_json::to_string_pretty(&sample()).expect("json"));
+        let original = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&sample()).expect("json")
+        );
         fs::write(&path, &original).expect("write");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).expect("chmod");
 
@@ -589,11 +662,20 @@ mod tests {
         assert!(report.error.is_none(), "{:?}", report.error);
         assert!(report.written);
         assert_eq!(report.backup.as_deref(), Some(backup_path(&path).as_path()));
-        assert_eq!(fs::read_to_string(backup_path(&path)).expect("backup"), original);
+        assert_eq!(
+            fs::read_to_string(backup_path(&path)).expect("backup"),
+            original
+        );
         let wrapped = fs::read_to_string(&path).expect("read");
         assert!(wrapped.ends_with("}\n"));
-        assert!(wrapped.find("numStartups") < wrapped.find("mcpServers"), "top-level key order kept");
-        assert_eq!(fs::metadata(&path).expect("stat").permissions().mode() & 0o777, 0o600);
+        assert!(
+            wrapped.find("numStartups") < wrapped.find("mcpServers"),
+            "top-level key order kept"
+        );
+        assert_eq!(
+            fs::metadata(&path).expect("stat").permissions().mode() & 0o777,
+            0o600
+        );
 
         // A second init keeps the pristine backup.
         let again = process_file(&path, Mode::Wrap, SOGAR, false);
@@ -601,15 +683,22 @@ mod tests {
 
         let unwrapped = process_file(&path, Mode::Unwrap, SOGAR, false);
         assert!(unwrapped.written);
-        let doc: Value = serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
-        assert_eq!(doc["mcpServers"]["github"], sample()["mcpServers"]["github"]);
+        let doc: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(
+            doc["mcpServers"]["github"],
+            sample()["mcpServers"]["github"]
+        );
 
         // Leftover temp files would show up next to the config.
         let names: Vec<String> = fs::read_dir(&dir.0)
             .expect("ls")
             .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
             .collect();
-        assert!(!names.iter().any(|n| n.ends_with(".sogar.tmp")), "{names:?}");
+        assert!(
+            !names.iter().any(|n| n.ends_with(".sogar.tmp")),
+            "{names:?}"
+        );
     }
 
     #[test]
@@ -622,8 +711,13 @@ mod tests {
 
         let report = process_file(&link, Mode::Wrap, SOGAR, false);
         assert!(report.written, "{:?}", report.error);
-        assert!(fs::symlink_metadata(&link).expect("lstat").file_type().is_symlink());
-        assert!(fs::read_to_string(&real).expect("read").contains("mcp-wrap"));
+        assert!(fs::symlink_metadata(&link)
+            .expect("lstat")
+            .file_type()
+            .is_symlink());
+        assert!(fs::read_to_string(&real)
+            .expect("read")
+            .contains("mcp-wrap"));
     }
 
     #[test]
@@ -632,7 +726,10 @@ mod tests {
         let path = dir.0.join("mcp.json");
         fs::write(&path, "{ not json").expect("write");
         let report = process_file(&path, Mode::Wrap, SOGAR, false);
-        assert!(report.error.as_deref().is_some_and(|e| e.contains("invalid JSON")));
+        assert!(report
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("invalid JSON")));
         assert_eq!(fs::read_to_string(&path).expect("read"), "{ not json");
     }
 
@@ -644,7 +741,10 @@ mod tests {
         fs::write(home.0.join(".cursor/mcp.json"), "{}").expect("write");
         // cwd == home: ~/.cursor/mcp.json must not be listed twice.
         let found = discover(&home.0, &home.0);
-        assert_eq!(found, vec![home.0.join(".claude.json"), home.0.join(".cursor/mcp.json")]);
+        assert_eq!(
+            found,
+            vec![home.0.join(".claude.json"), home.0.join(".cursor/mcp.json")]
+        );
     }
 
     #[test]
@@ -661,10 +761,16 @@ mod tests {
         let text = render_summary(&reports, &home, Mode::Wrap, false);
         assert!(text.contains("~/.claude.json  github"), "{text}");
         assert!(text.contains("skipped: remote server (url)"), "{text}");
-        assert!(text.contains("Backed up original to ~/.claude.json.sogar.bak"), "{text}");
+        assert!(
+            text.contains("Backed up original to ~/.claude.json.sogar.bak"),
+            "{text}"
+        );
         assert!(text.contains("3 server(s) wrapped in 1 file(s)."), "{text}");
 
         let dry = render_summary(&reports, &home, Mode::Wrap, true);
-        assert!(dry.contains("Dry run: 3 server(s) would be wrapped"), "{dry}");
+        assert!(
+            dry.contains("Dry run: 3 server(s) would be wrapped"),
+            "{dry}"
+        );
     }
 }

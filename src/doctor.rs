@@ -48,7 +48,12 @@ pub struct Check {
 
 impl Check {
     fn new(name: &'static str, status: Status, detail: impl Into<String>) -> Self {
-        Self { name, status, detail: detail.into(), hint: None }
+        Self {
+            name,
+            status,
+            detail: detail.into(),
+            hint: None,
+        }
     }
 
     fn hint(mut self, hint: impl Into<String>) -> Self {
@@ -67,12 +72,22 @@ fn owner(uid: u32) -> String {
 
 pub fn check_eslogger(path: &Path) -> Check {
     match fs::metadata(path) {
-        Ok(meta) if meta.is_file() && meta.permissions().mode() & 0o111 != 0 => {
-            Check::new("eslogger", Status::Pass, format!("{} present", path.display()))
-        }
-        Ok(_) => Check::new("eslogger", Status::Fail, format!("{} is not an executable file", path.display())),
-        Err(_) => Check::new("eslogger", Status::Fail, format!("{} not found", path.display()))
-            .hint("sogar watch requires macOS 13 or later"),
+        Ok(meta) if meta.is_file() && meta.permissions().mode() & 0o111 != 0 => Check::new(
+            "eslogger",
+            Status::Pass,
+            format!("{} present", path.display()),
+        ),
+        Ok(_) => Check::new(
+            "eslogger",
+            Status::Fail,
+            format!("{} is not an executable file", path.display()),
+        ),
+        Err(_) => Check::new(
+            "eslogger",
+            Status::Fail,
+            format!("{} not found", path.display()),
+        )
+        .hint("sogar watch requires macOS 13 or later"),
     }
 }
 
@@ -81,19 +96,40 @@ pub fn check_daemon(socket: &Path) -> Check {
     let meta = match fs::symlink_metadata(socket) {
         Ok(meta) => meta,
         Err(e) if e.kind() == ErrorKind::NotFound => {
-            return Check::new("daemon", Status::Warn, format!("not running (no socket at {})", socket.display()))
-                .hint(START);
+            return Check::new(
+                "daemon",
+                Status::Warn,
+                format!("not running (no socket at {})", socket.display()),
+            )
+            .hint(START);
         }
-        Err(e) => return Check::new("daemon", Status::Fail, format!("cannot stat {}: {e}", socket.display())),
+        Err(e) => {
+            return Check::new(
+                "daemon",
+                Status::Fail,
+                format!("cannot stat {}: {e}", socket.display()),
+            )
+        }
     };
     if !meta.file_type().is_socket() {
-        return Check::new("daemon", Status::Fail, format!("{} exists but is not a socket", socket.display()))
-            .hint("remove it, then start `sudo sogar watch`");
+        return Check::new(
+            "daemon",
+            Status::Fail,
+            format!("{} exists but is not a socket", socket.display()),
+        )
+        .hint("remove it, then start `sudo sogar watch`");
     }
     let mode = meta.permissions().mode() & 0o777;
     if let Err(e) = UnixStream::connect(socket) {
-        return Check::new("daemon", Status::Warn, format!("stale socket {}: nothing is accepting ({e})", socket.display()))
-            .hint(START);
+        return Check::new(
+            "daemon",
+            Status::Warn,
+            format!(
+                "stale socket {}: nothing is accepting ({e})",
+                socket.display()
+            ),
+        )
+        .hint(START);
     }
     let detail = format!(
         "{} accepting connections (mode {mode:04o}, owner {})",
@@ -112,10 +148,20 @@ pub fn check_ledger(path: &Path) -> Check {
     let meta = match fs::metadata(path) {
         Ok(meta) => meta,
         Err(e) if e.kind() == ErrorKind::NotFound => {
-            return Check::new("ledger", Status::Info, format!("no flight record yet at {}", path.display()))
-                .hint("`sudo sogar watch` creates it");
+            return Check::new(
+                "ledger",
+                Status::Info,
+                format!("no flight record yet at {}", path.display()),
+            )
+            .hint("`sudo sogar watch` creates it");
         }
-        Err(e) => return Check::new("ledger", Status::Fail, format!("cannot stat {}: {e}", path.display())),
+        Err(e) => {
+            return Check::new(
+                "ledger",
+                Status::Fail,
+                format!("cannot stat {}: {e}", path.display()),
+            )
+        }
     };
     let mode = meta.permissions().mode() & 0o777;
     let ownership = format!("owner {}, mode {mode:04o}", owner(meta.uid()));
@@ -139,15 +185,25 @@ pub fn check_ledger(path: &Path) -> Check {
             format!("{}: TAMPERED at line {line}: {reason}", path.display()),
         )
         .hint("run `sogar report` to see the trusted prefix, then move the file aside"),
-        Err(e) => Check::new("ledger", Status::Fail, format!("{} ({ownership}): {e:#}", path.display()))
-            .hint("it is root-owned and group-readable; check you are in its group, or use sudo"),
+        Err(e) => Check::new(
+            "ledger",
+            Status::Fail,
+            format!("{} ({ownership}): {e:#}", path.display()),
+        )
+        .hint("it is root-owned and group-readable; check you are in its group, or use sudo"),
     }
 }
 
 pub fn check_lockfile(path: &Path) -> Check {
     if !path.exists() {
-        return Check::new("lockfile", Status::Info, format!("no MCP lockfile at {}", path.display()))
-            .hint("after a representative session, run `sudo sogar lock` to enable rug-pull detection");
+        return Check::new(
+            "lockfile",
+            Status::Info,
+            format!("no MCP lockfile at {}", path.display()),
+        )
+        .hint(
+            "after a representative session, run `sudo sogar lock` to enable rug-pull detection",
+        );
     }
     match Lockfile::load(path) {
         Ok(lock) => {
@@ -187,7 +243,10 @@ pub fn check_mcp_configs(files: &[std::path::PathBuf]) -> Check {
         }
     }
     let total = wrapped + unwrapped;
-    let detail = format!("{wrapped} of {total} stdio MCP server(s) wrapped across {} config file(s)", files.len());
+    let detail = format!(
+        "{wrapped} of {total} stdio MCP server(s) wrapped across {} config file(s)",
+        files.len()
+    );
     if unwrapped > 0 {
         Check::new("mcp configs", Status::Warn, detail)
             .hint("unwrapped servers run without tool-call attribution: run `sogar init`")
@@ -202,12 +261,26 @@ pub fn render(checks: &[Check]) -> String {
     let width = checks.iter().map(|c| c.name.len()).max().unwrap_or(0);
     let mut out = format!("{}\n", "sogar doctor".bold());
     for check in checks {
-        out.push_str(&format!("  {} {:<width$}  {}\n", check.status.tag(), check.name, check.detail));
+        out.push_str(&format!(
+            "  {} {:<width$}  {}\n",
+            check.status.tag(),
+            check.name,
+            check.detail
+        ));
         if let Some(hint) = &check.hint {
-            out.push_str(&format!("  {:6} {:<width$}  {}\n", "", "", format!("→ {hint}").dimmed()));
+            out.push_str(&format!(
+                "  {:6} {:<width$}  {}\n",
+                "",
+                "",
+                format!("→ {hint}").dimmed()
+            ));
         }
     }
-    let worst = checks.iter().map(|c| c.status).max().unwrap_or(Status::Pass);
+    let worst = checks
+        .iter()
+        .map(|c| c.status)
+        .max()
+        .unwrap_or(Status::Pass);
     out.push_str(&match worst {
         Status::Fail => format!("\n{}\n", "Problems found.".red().bold()),
         Status::Warn => format!("\n{}\n", "Working, with warnings.".yellow().bold()),
@@ -275,13 +348,20 @@ mod tests {
         let sock = dir.0.join("s.sock");
         let missing = check_daemon(&sock);
         assert_eq!(missing.status, Status::Warn);
-        assert!(missing.hint.as_deref().is_some_and(|h| h.contains("sudo sogar watch")));
+        assert!(missing
+            .hint
+            .as_deref()
+            .is_some_and(|h| h.contains("sudo sogar watch")));
 
         let listener = std::os::unix::net::UnixListener::bind(&sock).expect("bind");
         fs::set_permissions(&sock, fs::Permissions::from_mode(0o600)).expect("chmod");
         let restricted = check_daemon(&sock);
         assert_eq!(restricted.status, Status::Warn);
-        assert!(restricted.detail.contains("mode 0600"), "{}", restricted.detail);
+        assert!(
+            restricted.detail.contains("mode 0600"),
+            "{}",
+            restricted.detail
+        );
 
         fs::set_permissions(&sock, fs::Permissions::from_mode(0o666)).expect("chmod");
         assert_eq!(check_daemon(&sock).status, Status::Pass);
@@ -304,18 +384,28 @@ mod tests {
 
         {
             let mut ledger = ledger::Ledger::open(&path).expect("open");
-            ledger.append(&serde_json::json!({"event": "open", "path": "/x"})).expect("append");
+            ledger
+                .append(&serde_json::json!({"event": "open", "path": "/x"}))
+                .expect("append");
         }
         // Owned by the test user, not root: valid but flagged.
         let user_owned = check_ledger(&path);
         assert_eq!(user_owned.status, Status::Warn);
-        assert!(user_owned.detail.contains("1 records, chain intact"), "{}", user_owned.detail);
+        assert!(
+            user_owned.detail.contains("1 records, chain intact"),
+            "{}",
+            user_owned.detail
+        );
 
         let text = fs::read_to_string(&path).expect("read");
         fs::write(&path, text.replace("/x", "/y")).expect("write");
         let tampered = check_ledger(&path);
         assert_eq!(tampered.status, Status::Fail);
-        assert!(tampered.detail.contains("TAMPERED at line 1"), "{}", tampered.detail);
+        assert!(
+            tampered.detail.contains("TAMPERED at line 1"),
+            "{}",
+            tampered.detail
+        );
     }
 
     #[test]
@@ -333,7 +423,12 @@ mod tests {
         )
         .expect("write");
         let ok = check_lockfile(&path);
-        assert!(ok.detail.contains("2 MCP server profile(s) locked, 1 allowed network access"), "{}", ok.detail);
+        assert!(
+            ok.detail
+                .contains("2 MCP server profile(s) locked, 1 allowed network access"),
+            "{}",
+            ok.detail
+        );
         // Written by the test user rather than root.
         assert_eq!(ok.status, Status::Warn);
     }
@@ -353,8 +448,18 @@ mod tests {
         let before = fs::read_to_string(&file).expect("read");
         let check = check_mcp_configs(std::slice::from_ref(&file));
         assert_eq!(check.status, Status::Warn);
-        assert!(check.detail.starts_with("1 of 2 stdio MCP server(s) wrapped"), "{}", check.detail);
-        assert_eq!(fs::read_to_string(&file).expect("read"), before, "doctor must not write");
+        assert!(
+            check
+                .detail
+                .starts_with("1 of 2 stdio MCP server(s) wrapped"),
+            "{}",
+            check.detail
+        );
+        assert_eq!(
+            fs::read_to_string(&file).expect("read"),
+            before,
+            "doctor must not write"
+        );
         assert_eq!(check_mcp_configs(&[]).status, Status::Info);
     }
 

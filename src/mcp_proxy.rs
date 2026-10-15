@@ -52,9 +52,9 @@ static SECRET_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
 /// Replaces AWS access keys, GitHub tokens, `sk-` API keys, Slack tokens and
 /// PEM private keys with `[REDACTED]`.
 pub fn redact_secrets(text: &str) -> String {
-    SECRET_PATTERNS
-        .iter()
-        .fold(text.to_owned(), |acc, re| re.replace_all(&acc, REDACTED).into_owned())
+    SECRET_PATTERNS.iter().fold(text.to_owned(), |acc, re| {
+        re.replace_all(&acc, REDACTED).into_owned()
+    })
 }
 
 pub fn truncate_chars(text: &str, max: usize) -> String {
@@ -117,7 +117,9 @@ fn parse_messages<T: DeserializeOwned>(line: &[u8]) -> Vec<T> {
     if line.first() == Some(&b'[') {
         serde_json::from_slice(line).unwrap_or_default()
     } else {
-        serde_json::from_slice(line).map(|m| vec![m]).unwrap_or_default()
+        serde_json::from_slice(line)
+            .map(|m| vec![m])
+            .unwrap_or_default()
     }
 }
 
@@ -135,7 +137,11 @@ pub fn extract_client_signals(line: &[u8]) -> Vec<ClientSignal> {
                     .unwrap_or("<unknown>")
                     .to_owned();
                 let arguments_summary = params.get("arguments").map(summarize_arguments);
-                Some(ClientSignal::ToolCall { id, tool_name, arguments_summary })
+                Some(ClientSignal::ToolCall {
+                    id,
+                    tool_name,
+                    arguments_summary,
+                })
             }
             Some("notifications/cancelled") => {
                 let id = req.params?.get("requestId")?.clone();
@@ -173,7 +179,12 @@ pub struct ProxyContext {
 }
 
 impl ProxyContext {
-    pub fn new(wrapper_pid: u32, child_pid: u32, server_name: &str, events: mpsc::Sender<IpcMessage>) -> Self {
+    pub fn new(
+        wrapper_pid: u32,
+        child_pid: u32,
+        server_name: &str,
+        events: mpsc::Sender<IpcMessage>,
+    ) -> Self {
         Self {
             wrapper_pid,
             child_pid,
@@ -198,7 +209,11 @@ impl ProxyContext {
 
     fn on_client_signal(&self, signal: ClientSignal) {
         match signal {
-            ClientSignal::ToolCall { id, tool_name, arguments_summary } => {
+            ClientSignal::ToolCall {
+                id,
+                tool_name,
+                arguments_summary,
+            } => {
                 {
                     let mut pending = self.pending();
                     if pending.len() < MAX_PENDING_CALLS {
@@ -242,7 +257,11 @@ impl ProxyContext {
 
 /// Client (agent) → MCP server. Tool calls are reported *before* the request
 /// is forwarded, so the daemon's call window opens before the server acts.
-pub async fn pump_client_to_server<R, W>(reader: R, mut writer: W, ctx: Arc<ProxyContext>) -> io::Result<()>
+pub async fn pump_client_to_server<R, W>(
+    reader: R,
+    mut writer: W,
+    ctx: Arc<ProxyContext>,
+) -> io::Result<()>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -265,7 +284,11 @@ where
 }
 
 /// MCP server → client (agent). Responses are forwarded first, then matched.
-pub async fn pump_server_to_client<R, W>(reader: R, mut writer: W, ctx: Arc<ProxyContext>) -> io::Result<()>
+pub async fn pump_server_to_client<R, W>(
+    reader: R,
+    mut writer: W,
+    ctx: Arc<ProxyContext>,
+) -> io::Result<()>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -307,11 +330,18 @@ pub async fn run(opts: WrapOptions) -> Result<i32> {
         .kill_on_drop(true)
         .spawn()
         .with_context(|| format!("failed to spawn MCP server {program:?}"))?;
-    let child_pid = child.id().context("MCP server exited before it could be tracked")?;
+    let child_pid = child
+        .id()
+        .context("MCP server exited before it could be tracked")?;
     let wrapper_pid = std::process::id();
 
     let (client, events) = IpcClient::spawn(opts.socket);
-    let ctx = Arc::new(ProxyContext::new(wrapper_pid, child_pid, &opts.server_name, events));
+    let ctx = Arc::new(ProxyContext::new(
+        wrapper_pid,
+        child_pid,
+        &opts.server_name,
+        events,
+    ));
     ctx.notify(IpcMessage::McpServerStart {
         wrapper_pid,
         child_pid,
@@ -319,12 +349,27 @@ pub async fn run(opts: WrapOptions) -> Result<i32> {
         timestamp: Utc::now(),
     });
 
-    let child_stdin = child.stdin.take().context("MCP server stdin was not captured")?;
-    let child_stdout = child.stdout.take().context("MCP server stdout was not captured")?;
-    let upstream = tokio::spawn(pump_client_to_server(tokio::io::stdin(), child_stdin, ctx.clone()));
-    let downstream = tokio::spawn(pump_server_to_client(child_stdout, tokio::io::stdout(), ctx.clone()));
+    let child_stdin = child
+        .stdin
+        .take()
+        .context("MCP server stdin was not captured")?;
+    let child_stdout = child
+        .stdout
+        .take()
+        .context("MCP server stdout was not captured")?;
+    let upstream = tokio::spawn(pump_client_to_server(
+        tokio::io::stdin(),
+        child_stdin,
+        ctx.clone(),
+    ));
+    let downstream = tokio::spawn(pump_server_to_client(
+        child_stdout,
+        tokio::io::stdout(),
+        ctx.clone(),
+    ));
 
-    let mut sigterm = signal(SignalKind::terminate()).context("failed to install SIGTERM handler")?;
+    let mut sigterm =
+        signal(SignalKind::terminate()).context("failed to install SIGTERM handler")?;
     let mut sigint = signal(SignalKind::interrupt()).context("failed to install SIGINT handler")?;
     let mut sighup = signal(SignalKind::hangup()).context("failed to install SIGHUP handler")?;
     let status = loop {
@@ -403,7 +448,10 @@ mod tests {
         let escaped = json!({"content": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNz\n-----END OPENSSH PRIVATE KEY-----"}).to_string();
         let red = redact_secrets(&escaped);
         assert_eq!(red, r#"{"content":"[REDACTED]"}"#);
-        assert_eq!(redact_secrets("-----BEGIN EC PRIVATE KEY----- MHcC"), "[REDACTED]");
+        assert_eq!(
+            redact_secrets("-----BEGIN EC PRIVATE KEY----- MHcC"),
+            "[REDACTED]"
+        );
     }
 
     #[test]
@@ -450,12 +498,26 @@ mod tests {
 
     #[test]
     fn extracts_responses_and_error_flags() {
-        assert_eq!(extract_responses(br#"{"jsonrpc":"2.0","id":7,"result":{"content":[]}}"#), vec![(json!(7), false)]);
-        assert_eq!(extract_responses(br#"{"jsonrpc":"2.0","id":7,"result":{"isError":true}}"#), vec![(json!(7), true)]);
-        assert_eq!(extract_responses(br#"{"jsonrpc":"2.0","id":"x","error":{"code":-32601}}"#), vec![(json!("x"), true)]);
+        assert_eq!(
+            extract_responses(br#"{"jsonrpc":"2.0","id":7,"result":{"content":[]}}"#),
+            vec![(json!(7), false)]
+        );
+        assert_eq!(
+            extract_responses(br#"{"jsonrpc":"2.0","id":7,"result":{"isError":true}}"#),
+            vec![(json!(7), true)]
+        );
+        assert_eq!(
+            extract_responses(br#"{"jsonrpc":"2.0","id":"x","error":{"code":-32601}}"#),
+            vec![(json!("x"), true)]
+        );
         // Server→client requests and notifications are not responses.
-        assert!(extract_responses(br#"{"jsonrpc":"2.0","id":1,"method":"sampling/createMessage"}"#).is_empty());
-        assert!(extract_responses(br#"{"jsonrpc":"2.0","method":"notifications/progress"}"#).is_empty());
+        assert!(extract_responses(
+            br#"{"jsonrpc":"2.0","id":1,"method":"sampling/createMessage"}"#
+        )
+        .is_empty());
+        assert!(
+            extract_responses(br#"{"jsonrpc":"2.0","method":"notifications/progress"}"#).is_empty()
+        );
     }
 
     async fn read_line<R: AsyncRead + Unpin>(r: &mut R) -> Vec<u8> {
@@ -480,7 +542,11 @@ mod tests {
         let (mut server_out_w, server_out_r) = duplex(1 << 16);
         let (client_out_w, mut client_out_r) = duplex(1 << 16);
         let up = tokio::spawn(pump_client_to_server(client_r, server_in_w, ctx.clone()));
-        let down = tokio::spawn(pump_server_to_client(server_out_r, client_out_w, ctx.clone()));
+        let down = tokio::spawn(pump_server_to_client(
+            server_out_r,
+            client_out_w,
+            ctx.clone(),
+        ));
 
         // Odd spacing and key order must survive byte for byte.
         let request = b"{ \"method\":\"tools/call\" ,\"jsonrpc\":\"2.0\",\"id\":7,\"params\":{\"name\":\"read_file\",\"arguments\":{\"path\":\"/Users/dev/.ssh/id_rsa\"}}}\n";
@@ -488,10 +554,24 @@ mod tests {
         assert_eq!(read_line(&mut server_in_r).await, request.to_vec());
 
         match rx.recv().await.expect("start") {
-            IpcMessage::McpCallStart { wrapper_pid, child_pid, server_name, rpc_id, tool_name, arguments_summary, .. } => {
-                assert_eq!((wrapper_pid, child_pid, server_name.as_str()), (10, 11, "fs"));
+            IpcMessage::McpCallStart {
+                wrapper_pid,
+                child_pid,
+                server_name,
+                rpc_id,
+                tool_name,
+                arguments_summary,
+                ..
+            } => {
+                assert_eq!(
+                    (wrapper_pid, child_pid, server_name.as_str()),
+                    (10, 11, "fs")
+                );
                 assert_eq!((rpc_id, tool_name.as_str()), (json!(7), "read_file"));
-                assert_eq!(arguments_summary.as_deref(), Some(r#"{"path":"/Users/dev/.ssh/id_rsa"}"#));
+                assert_eq!(
+                    arguments_summary.as_deref(),
+                    Some(r#"{"path":"/Users/dev/.ssh/id_rsa"}"#)
+                );
             }
             other => panic!("unexpected {other:?}"),
         }
@@ -504,8 +584,17 @@ mod tests {
         assert_eq!(read_line(&mut client_out_r).await, response.to_vec());
 
         match rx.recv().await.expect("end") {
-            IpcMessage::McpCallEnd { child_pid, rpc_id, is_error, cancelled, .. } => {
-                assert_eq!((child_pid, rpc_id, is_error, cancelled), (11, json!(7), false, false));
+            IpcMessage::McpCallEnd {
+                child_pid,
+                rpc_id,
+                is_error,
+                cancelled,
+                ..
+            } => {
+                assert_eq!(
+                    (child_pid, rpc_id, is_error, cancelled),
+                    (11, json!(7), false, false)
+                );
             }
             other => panic!("unexpected {other:?}"),
         }
@@ -532,7 +621,9 @@ mod tests {
         let (tx, _rx) = mpsc::channel(4);
         let ctx = Arc::new(ProxyContext::new(1, 2, "s", tx));
         let mut out = Vec::new();
-        pump_client_to_server(&b"{\"a\":1}\n{\"b\":2}"[..], &mut out, ctx).await.expect("ok");
+        pump_client_to_server(&b"{\"a\":1}\n{\"b\":2}"[..], &mut out, ctx)
+            .await
+            .expect("ok");
         assert_eq!(out, b"{\"a\":1}\n{\"b\":2}");
     }
 }
