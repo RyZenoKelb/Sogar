@@ -4,6 +4,17 @@ All notable changes to sogar are documented here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-15
+
+No functional changes since 0.3.0.
+
+### Changed
+
+- The crates.io page now links to the current source tree on GitHub.
+- The package now ships `CHANGELOG.md` and declares its minimum supported Rust version (1.88).
+- The `homepage` link to a domain that is not live yet is removed.
+- The code is formatted with rustfmt.
+
 ## [0.3.0] - 2026-10-15
 
 First public release.
@@ -28,5 +39,6 @@ First public release.
 - `sogar export`: OCSF 1.3, SARIF 2.1.0 and JSONL.
 - `sogar doctor`: a read-only installation health check.
 
-[Unreleased]: https://github.com/RyZenoKelb/Sogar/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/RyZenoKelb/Sogar/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/RyZenoKelb/Sogar/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/RyZenoKelb/Sogar/releases/tag/v0.3.0

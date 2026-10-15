@@ -6,4 +6,4 @@ In short: be respectful and constructive, assume good faith, and keep discussion
 
 ## Reporting
 
-To report unacceptable behaviour, contact the maintainer, [@RyZenoKelb](https://github.com/RyZenoKelb), privately. Reports are handled confidentially. The maintainer may remove content, or temporarily or permanently ban participants who violate this code of conduct.
+To report unacceptable behaviour, email the maintainer, [@RyZenoKelb](https://github.com/RyZenoKelb), at [ryzenotheking@gmail.com](mailto:ryzenotheking@gmail.com). Reports are handled confidentially. The maintainer may remove content, or temporarily or permanently ban participants who violate this code of conduct.

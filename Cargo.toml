@@ -1,12 +1,11 @@
 [package]
 name = "sogar"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.88"
 description = "Kernel-to-MCP flight recorder for AI agents on macOS: attributes every exec, file access and socket to the agent and MCP tool call that caused it"
 license = "Apache-2.0"
 repository = "https://github.com/RyZenoKelb/Sogar"
-homepage = "https://sogar.dev"
 readme = "README.md"
 keywords = ["macos", "observability", "mcp", "audit", "cli"]
 categories = ["command-line-utilities", "development-tools"]
