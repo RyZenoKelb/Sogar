@@ -1,0 +1,30 @@
+[package]
+name = "sogar"
+version = "0.3.0"
+edition = "2021"
+description = "Kernel-to-MCP flight recorder for AI agents on macOS: attributes every exec, file access and socket to the agent and MCP tool call that caused it"
+license = "Apache-2.0"
+repository = "https://github.com/RyZenoKelb/Sogar"
+homepage = "https://sogar.dev"
+readme = "README.md"
+keywords = ["macos", "observability", "mcp", "audit", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = ["AGENTS.md"]
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+colored = "3"
+hex = "0.4"
+libc = "0.2"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["native-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
